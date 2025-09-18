@@ -25,12 +25,14 @@ class DC3:
                         new_row, new_col = row + dr, col + dc
                         if 0 <= new_row < 4 and 0 <= new_col < 5 and self.grid[new_row][new_col] is None:
                             moves.append(((col, row), (new_col, new_row)))
+        #print(f"Possible moves for player {self.current_player}: {moves}")  
         return moves
     
     def parse_move(self, move: str) -> Tuple[Tuple[int, int], Tuple[int, int]]:
         # Parse move from string format to tuple, 1-indexed
-        if len(move) < 3 or len(move) > 3:
-            raise ValueError("Invalid move")
+        #if len(move) < 3 or len(move) > 3:
+         #   print("Invalid move format")
+          #  raise ValueError("Invalid move")
         
         x = int(move[0]) - 1
         y = int(move[1]) - 1
@@ -75,9 +77,10 @@ class DC3:
         # Check if win state or draw
         if self.check_win_state() is not None:
             return True
-        
+
         # Check for draw (threefold repetition)
-        if self.move_history.count(str(self.grid)) >= 2:
+        current_position = (str(self.grid), self.current_player)
+        if self.move_history.count(current_position) >= 3:
             print("Draw due to threefold repetition")
             return True
 
@@ -89,17 +92,21 @@ class DC3:
         # Check if target location move is legal
         # Execute move
         try:
-            (x, y), (dest_x, dest_y) = self.parse_move(move)
+            # If move is a string, parse it; if tuple, use directly
+            if isinstance(move, str):
+                (x, y), (dest_x, dest_y) = self.parse_move(move)
+            else:
+                (x, y), (dest_x, dest_y) = move
 
             # Check if initial position has current player's piece
             if self.grid[y][x] != self.current_player:
                 raise ValueError("Piece does not belong to current player")
-            
+
             # Check if move is legal
             possible_moves = self.get_possible_moves()
-            if (dest_x, dest_y) not in possible_moves:
+            if ((x, y), (dest_x, dest_y)) not in possible_moves:
                 raise ValueError("Illegal move")
-            
+
             # Execute move
             new_state = copy.deepcopy(self)
 
@@ -111,8 +118,8 @@ class DC3:
                 new_state.current_player = 1
             else:
                 new_state.current_player = 0
-            
-            new_state.move_history = self.move_history + [str(new_state.grid)]
+
+            new_state.move_history = self.move_history + [(str(new_state.grid), new_state.current_player)]
             return new_state
 
         except ValueError as e:
@@ -122,10 +129,8 @@ class DC3:
     def utility(self) -> int:
         winner = self.check_win_state()
         if winner == 0:
-            print("White wins!")
             return float('inf')
         elif winner == 1:
-            print("Black wins!")
             return float('-inf')
         else:
             return 0
@@ -157,6 +162,8 @@ class DC3Agent:
 
         if state.terminal_test():
             return state.utility()
+        if depth == 0:
+            return self.heuristic(state)
 
         best_score = float('-inf')
         for move in state.get_possible_moves():
@@ -171,6 +178,8 @@ class DC3Agent:
 
         if state.terminal_test():
             return state.utility()
+        if depth == 0:
+            return self.heuristic(state)
 
         best_score = float('inf')
         for move in state.get_possible_moves():
@@ -211,7 +220,10 @@ def draw_board(state: DC3):
     for row in range(4):
         row_str = f"{row + 1} "  # Row number
         for col in range(5):
-            row_str += state.grid[row][col] + ',' if state.grid[row][col] is not None else ' ,'
+            if state.grid[row][col] is not None:
+                row_str += str(state.grid[row][col]) + ','
+            else:
+                row_str += ' ,'
         print(row_str)
     print()
 
@@ -231,11 +243,28 @@ def play_game():
                 game = game.move(move)
             except ValueError:
                 print("Invalid move. Try again.")
+                continue
+            if game.terminal_test():
+                draw_board(game)
+                winner = game.check_win_state()
+                if winner == 0:
+                    print("White wins!")
+                elif winner == 1:
+                    print("Black wins!")
+                break
         else:
             print("Agent's turn...")
             move = agent.minimax_decision(game)
             print(f"Agent chose move: {move}")
             game = game.move(move)
+            if game.terminal_test():
+                draw_board(game)
+                winner = game.check_win_state()
+                if winner == 0:
+                    print("White wins!")
+                elif winner == 1:
+                    print("Black wins!")
+                break
 
 if __name__ == "__main__":
     play_game()
