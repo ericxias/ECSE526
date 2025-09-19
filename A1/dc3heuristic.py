@@ -3,8 +3,6 @@ import sys
 import copy
 from typing import List, Tuple, Optional
 
-from pyparsing import col
-
 # Game Logic
 class DC3:
     def __init__(self):
@@ -128,9 +126,9 @@ class DC3:
     def utility(self) -> int:
         winner = self.check_win_state()
         if winner == 0:
-            return float('inf')
+            return 10000
         elif winner == 1:
-            return float('-inf')
+            return -10000
         else:
             return 0
 
@@ -199,8 +197,56 @@ class DC3Agent:
         return v
 
     def heuristic(self, state: DC3) -> int:
-        # Simple heuristic: count number of 2-in-a-rows for each player
+        # Count number of 2-in-a-rows for each player
         score = 0
+        # Check for an immediate win in next move
+        for move in state.get_possible_moves():
+            new_state = state.move(move)
+            if new_state.check_win_state() == state.current_player:
+                if state.current_player == 0:
+                    return 10000
+                else:
+                    return -10000
+
+        # Check if opponent can win in next move, and block it if possible
+        opponent = 1 - state.current_player
+        opp_state = copy.deepcopy(state)
+        opp_state.current_player = opponent
+        winning_moves = []
+        for move in opp_state.get_possible_moves():
+            if opp_state.move(move).check_win_state() == opponent:
+                winning_moves.append(move[1])
+
+        # Check if the winning moves can be blocked
+        if len(winning_moves) > 0:
+            '''can_block = False
+            for opp_moves in winning_moves:
+                # Check if we can move to the opponent's winning position 
+                for moves in state.get_possible_moves():
+                    if moves[1] == opp_moves:
+                        can_block = True
+                        if state.current_player == 0:
+                            score += 2000
+                        else:
+                            score -= 2000
+                        break      '''   
+            # Optimization generated with AI to reduce number of iterations
+            reachable_positions = set(move[1] for move in state.get_possible_moves())
+            can_block = bool(winning_moves & reachable_positions)
+            if can_block:
+                if state.current_player == 0:
+                    score += 2000
+                else:
+                    score -= 2000
+            else:
+                if state.current_player == 0:
+                    score -= 5000
+                else:
+                    score += 5000
+
+        trans_table = set()
+
+        # Check number of 2-in-a-rows that can convert to 3-in-a-rows in two move
         for row in range(4):
             for col in range(5):
                 if state.grid[row][col] is not None:
@@ -208,20 +254,116 @@ class DC3Agent:
 
                     # horizontal check for 2 consecutive same colour pieces
                     if col <= 3 and (state.grid[row][col + 1] == player):
-                        score += 1 if player == 0 else -1
+                        explored_move = (row, min(col, col + 1), 'H', player)
+                        # Check if evaluation was already explored in trans table
+                        if explored_move not in trans_table:
+                            trans_table.add(explored_move)
+                            # Check if left side is empty to complete 3-in-a-row
+                            if col - 1 >= 0 and state.grid[row][col - 1] is None:
+                                # Check if two moves makes 3-in-a-row
+                                if self.two_move_win(state, player, col, row):
+                                    if player == 0:
+                                        score += 100
+                                    else:
+                                        score -= 100
+                            # Check if right side is empty to complete 3-in-a-row
+                            if col + 2 < 5 and state.grid[row][col + 2] is None:
+                                # Check if two moves makes 3-in-a-row
+                                if self.two_move_win(state, player, col + 1, row):
+                                    if player == 0:
+                                        score += 100
+                                    else:
+                                        score -= 100
                     
                     # vertical check for 2 consecutive same colour pieces
                     if row <= 2 and (state.grid[row + 1][col] == player):
-                        score += 1 if player == 0 else -1
-                    
+                        explored_move = (min(row, row + 1), col, 'V', player)
+                        if explored_move not in trans_table:
+                            trans_table.add(explored_move)
+                            # Check if above side is empty to complete 3-in-a-row
+                            if row - 1 >= 0 and state.grid[row - 1][col] is None:
+                                # Check if two moves makes 3-in-a-row
+                                if self.two_move_win(state, player, col, row):
+                                    if player == 0:
+                                        score += 100
+                                    else:
+                                        score -= 100
+                            # Check if below side is empty to complete 3-in-a-row
+                            if row + 2 < 4 and state.grid[row + 2][col] is None:
+                                # Check if two moves makes 3-in-a-row
+                                if self.two_move_win(state, player, col, row + 1):
+                                    if player == 0:
+                                        score += 100
+                                    else:
+                                        score -= 100
                     # diagonal check (down-right) for 2 consecutive same colour pieces
                     if row <= 2 and col <= 3 and (state.grid[row + 1][col + 1] == player):
-                        score += 1 if player == 0 else -1
-                    
+                        explored_move = (min(row, row + 1), min(col, col + 1), 'D1', player)
+                        if explored_move not in trans_table:
+                            trans_table.add(explored_move)
+                            # Check if top-left side is empty to complete 3-in-a-row
+                            if row - 1 >= 0 and col - 1 >= 0 and state.grid[row - 1][col - 1] is None:
+                                # Check if two moves makes 3-in-a-row
+                                if self.two_move_win(state, player, col, row):
+                                    if player == 0:
+                                        score += 100
+                                    else:
+                                        score -= 100
+                            # Check if bottom-right side is empty to complete 3-in-a-row
+                            if row + 2 < 4 and col + 2 < 5 and state.grid[row + 2][col + 2] is None:
+                                # Check if two moves makes 3-in-a-row
+                                if self.two_move_win(state, player, col + 1, row + 1):
+                                    if player == 0:
+                                        score += 100
+                                    else:
+                                        score -= 100
                     # diagonal check (down-left) for 2 consecutive same colour pieces
                     if row <= 2 and col >= 1 and (state.grid[row + 1][col - 1] == player):
-                        score += 1 if player == 0 else -1               
+                        explored_move = (min(row, row + 1), max(col, col - 1), 'D2', player)
+                        if explored_move not in trans_table:
+                            trans_table.add(explored_move)
+                            # Check if top-right side is empty to complete 3-in-a-row
+                            if row - 1 >= 0 and col + 1 < 5 and state.grid[row - 1][col + 1] is None:
+                                # Check if two moves makes 3-in-a-row
+                                if self.two_move_win(state, player, col, row):
+                                    if player == 0:
+                                        score += 100
+                                    else:
+                                        score -= 100
+                    # diagonal check (down-left) for 2 consecutive same colour pieces
+                    if row <= 2 and col >= 1 and (state.grid[row + 1][col - 1] == player):
+                        explored_move = (min(row, row + 1), max(col, col - 1), 'D2', player)
+                        if explored_move not in trans_table:
+                            trans_table.add(explored_move)
+                            # Check if top-right side is empty to complete 3-in-a-row
+                            if row - 1 >= 0 and col + 1 < 5 and state.grid[row - 1][col + 1] is None:
+                                # Check if two moves makes 3-in-a-row
+                                if self.two_move_win(state, player, col, row):
+                                    if player == 0:
+                                        score += 100
+                                    else:
+                                        score -= 100
+                            # Check if bottom-left side is empty to complete 3-in-a-row
+                            if row + 2 < 4 and col - 2 >= 0 and state.grid[row + 2][col - 2] is None:
+                                # Check if two moves makes 3-in-a-row
+                                if self.two_move_win(state, player, col - 1, row + 1):
+                                    if player == 0:
+                                        score += 100
+                                    else:
+                                        score -= 100
         return score
+    
+    def two_move_win(self, state: DC3, player: int, col: int, row: int) -> bool:
+        temp_state = copy.deepcopy(state)
+        temp_state.current_player = player
+        for move in temp_state.get_possible_moves():
+            move_state = temp_state.move(move)
+            move_state.current_player = player
+            for next_move in move_state.get_possible_moves():
+                if move_state.move(next_move).check_win_state() == player:
+                    return True
+        return False
+            
 
     def move_to_string(self, move: Tuple[Tuple[int, int], Tuple[int, int]]) -> str:
         # Convert move tuple to server format string
@@ -250,7 +392,7 @@ class ServerGame:
         self.server_port = server_port
         self.game_id = game_id
         self.color = color.lower()
-        self.agent = DC3Agent(depth=4)
+        self.agent = DC3Agent(depth=5)
         self.game_state = DC3()
         self.my_player = 0 if color.lower() == 'white' else 1
         self.socket = None
@@ -278,13 +420,13 @@ class ServerGame:
         print("  1 2 3 4 5")  
         for row in range(4):
             # Row number
-            row_str = f"{row + 1} "  
+            row_str = []  
             for col in range(5):
                 if state.grid[row][col] is not None:
-                    row_str += str(state.grid[row][col]) + ','
+                    row_str.append(str(state.grid[row][col]))
                 else:
-                    row_str += ' ,'
-            print(row_str)
+                    row_str.append(' ')
+            print(f"{row + 1} " + ','.join(row_str))
         print()
 
     
@@ -304,7 +446,7 @@ class ServerGame:
                     self.socket.send((move_str + "\n").encode())
                     self.game_state = self.game_state.move(move_str)
                     
-                    # Wait for server confirmation (echo of our move)
+                    # Wait for server confirmation
                     try:
                         response = self.socket.recv(1024).decode().strip()
                         print(f"Server confirmed: {response}")
@@ -324,7 +466,7 @@ class ServerGame:
                             print("Draw!")
                         break
                 else:
-                    # Opponent's turn - wait for their move
+                    # Opponent's turn
                     print("Waiting for opponent's move...")
                     
                     try:
