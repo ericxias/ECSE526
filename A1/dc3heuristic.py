@@ -137,7 +137,8 @@ class DC3Agent:
 
     def __init__(self, depth: int):
         self.depth = depth
-        self.nodes_traveled = 0
+        # Transposition table to store evaluated states
+        self.trans_table = {}
 
     # Alpha Beta pruning is written utilizing pseudocode from AIMA textbook
     def alpha_beta(self, state: DC3) -> Tuple[Tuple[int, int], Tuple[int, int]]:
@@ -159,8 +160,6 @@ class DC3Agent:
         return best_move
 
     def max_value(self, state: DC3, depth: int, alpha: float, beta: float) -> int:
-        self.nodes_traveled += 1
-
         if state.terminal_test():
             return state.utility()
         if depth == 0:
@@ -178,8 +177,6 @@ class DC3Agent:
         return v
 
     def min_value(self, state: DC3, depth: int, alpha: float, beta: float) -> int:
-        self.nodes_traveled += 1
-
         if state.terminal_test():
             return state.utility()
         if depth == 0:
@@ -195,8 +192,19 @@ class DC3Agent:
             beta = min(beta, v)
 
         return v
-
+    
     def heuristic(self, state: DC3) -> int:
+        # Check if state was evaluated before in transposition table
+        position = str(state.grid) + str(state.current_player)
+        if position in self.trans_table:
+            return self.trans_table[position]
+        
+        # Evaluate heuristic score for the state and store
+        score = self.calculate_heuristic(state)
+        self.trans_table[position] = score
+        return score
+
+    def calculate_heuristic(self, state: DC3) -> int:
         # Count number of 2-in-a-rows for each player
         score = 0
         # Check for an immediate win in next move
@@ -212,10 +220,10 @@ class DC3Agent:
         opponent = 1 - state.current_player
         opp_state = copy.deepcopy(state)
         opp_state.current_player = opponent
-        winning_moves = []
+        winning_moves = set()
         for move in opp_state.get_possible_moves():
             if opp_state.move(move).check_win_state() == opponent:
-                winning_moves.append(move[1])
+                winning_moves.add(move[1])
 
         # Check if the winning moves can be blocked
         if len(winning_moves) > 0:
@@ -244,7 +252,7 @@ class DC3Agent:
                 else:
                     score += 5000
 
-        trans_table = set()
+        evaluated_states= set()
 
         # Check number of 2-in-a-rows that can convert to 3-in-a-rows in two move
         for row in range(4):
@@ -256,8 +264,8 @@ class DC3Agent:
                     if col <= 3 and (state.grid[row][col + 1] == player):
                         explored_move = (row, min(col, col + 1), 'H', player)
                         # Check if evaluation was already explored in trans table
-                        if explored_move not in trans_table:
-                            trans_table.add(explored_move)
+                        if explored_move not in evaluated_states:
+                            evaluated_states.add(explored_move)
                             # Check if left side is empty to complete 3-in-a-row
                             if col - 1 >= 0 and state.grid[row][col - 1] is None:
                                 # Check if two moves makes 3-in-a-row
@@ -278,8 +286,8 @@ class DC3Agent:
                     # vertical check for 2 consecutive same colour pieces
                     if row <= 2 and (state.grid[row + 1][col] == player):
                         explored_move = (min(row, row + 1), col, 'V', player)
-                        if explored_move not in trans_table:
-                            trans_table.add(explored_move)
+                        if explored_move not in evaluated_states:
+                            evaluated_states.add(explored_move)
                             # Check if above side is empty to complete 3-in-a-row
                             if row - 1 >= 0 and state.grid[row - 1][col] is None:
                                 # Check if two moves makes 3-in-a-row
@@ -299,8 +307,8 @@ class DC3Agent:
                     # diagonal check (down-right) for 2 consecutive same colour pieces
                     if row <= 2 and col <= 3 and (state.grid[row + 1][col + 1] == player):
                         explored_move = (min(row, row + 1), min(col, col + 1), 'D1', player)
-                        if explored_move not in trans_table:
-                            trans_table.add(explored_move)
+                        if explored_move not in evaluated_states:
+                            evaluated_states.add(explored_move)
                             # Check if top-left side is empty to complete 3-in-a-row
                             if row - 1 >= 0 and col - 1 >= 0 and state.grid[row - 1][col - 1] is None:
                                 # Check if two moves makes 3-in-a-row
@@ -320,21 +328,8 @@ class DC3Agent:
                     # diagonal check (down-left) for 2 consecutive same colour pieces
                     if row <= 2 and col >= 1 and (state.grid[row + 1][col - 1] == player):
                         explored_move = (min(row, row + 1), max(col, col - 1), 'D2', player)
-                        if explored_move not in trans_table:
-                            trans_table.add(explored_move)
-                            # Check if top-right side is empty to complete 3-in-a-row
-                            if row - 1 >= 0 and col + 1 < 5 and state.grid[row - 1][col + 1] is None:
-                                # Check if two moves makes 3-in-a-row
-                                if self.two_move_win(state, player, col, row):
-                                    if player == 0:
-                                        score += 100
-                                    else:
-                                        score -= 100
-                    # diagonal check (down-left) for 2 consecutive same colour pieces
-                    if row <= 2 and col >= 1 and (state.grid[row + 1][col - 1] == player):
-                        explored_move = (min(row, row + 1), max(col, col - 1), 'D2', player)
-                        if explored_move not in trans_table:
-                            trans_table.add(explored_move)
+                        if explored_move not in evaluated_states:
+                            evaluated_states.add(explored_move)
                             # Check if top-right side is empty to complete 3-in-a-row
                             if row - 1 >= 0 and col + 1 < 5 and state.grid[row - 1][col + 1] is None:
                                 # Check if two moves makes 3-in-a-row
