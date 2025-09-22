@@ -49,6 +49,20 @@ class DC3:
             return (x, y), (x - 1, y)
         else:
             raise ValueError("Invalid direction")
+    
+    def draw_board(self):
+        # Column numbers
+        print("  1 2 3 4 5")  
+        for row in range(4):
+            # Row number
+            row_str = []  
+            for col in range(5):
+                if self.grid[row][col] is not None:
+                    row_str.append(str(self.grid[row][col]))
+                else:
+                    row_str.append(' ')
+            print(f"{row + 1} " + ','.join(row_str))
+        print()
         
     def check_win_state(self) -> Optional[int]:
         # Check if 3 consecutive pieces of the same colour exist
@@ -59,19 +73,27 @@ class DC3:
 
                     # horizontal check for 3 consecutive same colour pieces
                     if col <= 2 and (self.grid[row][col + 1] == player and self.grid[row][col + 2] == player ):
+                        #print(f"Horizontal win detected found at ({row}, {col})")
+                        #self.draw_board()
                         return player
                     
                     # vertical check for 3 consecutive same colour pieces
                     if row <= 1 and (self.grid[row + 1][col] == player and self.grid[row + 2][col] == player):
+                        #print(f"Vertical win detected found at ({row}, {col})")
+                        #self.draw_board()
                         return player
                     
                     # diagonal check (down-right) for 3 consecutive same colour pieces
                     if row <= 1 and col <= 2 and (self.grid[row + 1][col + 1] == player and self.grid[row + 2][col + 2] == player):
+                        #print(f"Diagonal (down-right) win detected found at ({row}, {col})")
+                        #self.draw_board()
                         return player
                     
                     # diagonal check (down-left) for 3 consecutive same colour pieces
                     if row <= 1 and col >= 2 and (self.grid[row + 1][col - 1] == player and self.grid[row + 2][col - 2] == player):
-                        return player               
+                        #print(f"Diagonal (down-left) win detected found at ({row}, {col})")
+                        #self.draw_board()
+                        return player
         return None
 
     def terminal_test(self) -> bool:
@@ -147,55 +169,64 @@ class DC3Agent:
         best_move = None
         alpha = float('-inf')
         beta = float('inf')
+        best_depth = float('inf')
 
         for move in state.get_possible_moves():
             new_state = state.move(move)
-            result = self.min_value(new_state, self.depth - 1, alpha, beta)
+            score, score_depth = self.min_value(new_state, self.depth - 1, alpha, beta)
             move_str = self.move_to_string(move)
-            print(f"Evaluating Move: {move_str} with value {result}")
+            print(f"Evaluating Move: {move_str} with value {score} and depth used {score_depth}")
 
-            if result > v:
-                v = result
+            if score > v or (score == v and score_depth < best_depth):
+                v = score
                 best_move = move
-                print(f"New Best Move: {move_str} with value {result}")
+                best_depth = score_depth
+                print(f"New Best Move: {move_str} with value {score} and depth used {score_depth}")
+
 
             alpha = max(alpha, v)
         print(f"Best Move: {self.move_to_string(best_move)} with value {v}")
         return best_move
 
-    def max_value(self, state: DC3, depth: int, alpha: float, beta: float) -> int:
+    def max_value(self, state: DC3, depth: int, alpha: float, beta: float) -> Tuple[int, int]:
         if state.terminal_test():
-            return state.utility()
+            return state.utility(), self.depth - depth
         if depth == 0:
-            return self.heuristic(state)
+            return self.heuristic(state), self.depth
 
         v = float('-inf')
+        best_depth = float('inf')
         for move in state.get_possible_moves():
             new_state = state.move(move)
-            result = self.min_value(new_state, depth - 1, alpha, beta)
-            v = max(v, result)
+            score, score_depth = self.min_value(new_state, depth - 1, alpha, beta)
+            if score > v or (score == v and score_depth < best_depth):
+                v = score
+                best_depth = score_depth
             if v >= beta:
-                return v
+                return v, best_depth
             alpha = max(alpha, v)
 
-        return v
+        return v, best_depth
 
-    def min_value(self, state: DC3, depth: int, alpha: float, beta: float) -> int:
+    def min_value(self, state: DC3, depth: int, alpha: float, beta: float) -> Tuple[int, int]:
         if state.terminal_test():
-            return state.utility()
+            return state.utility(), self.depth - depth
         if depth == 0:
-            return self.heuristic(state)
+            return self.heuristic(state), self.depth
 
         v = float('inf')
+        best_depth = float('inf')
         for move in state.get_possible_moves():
             new_state = state.move(move)
-            score = self.max_value(new_state, depth - 1, alpha, beta)
-            v = min(v, score)
+            score, score_depth = self.max_value(new_state, depth - 1, alpha, beta)
+            if score < v or (score == v and score_depth < best_depth):
+                v = score
+                best_depth = score_depth
             if v <= alpha:
-                return v
+                return v, best_depth
             beta = min(beta, v)
 
-        return v
+        return v, best_depth
 
     def heuristic(self, state: DC3) -> int:
         # Check if state was evaluated before in transposition table
@@ -209,8 +240,7 @@ class DC3Agent:
         return score
 
     def calculate_heuristic(self, state: DC3) -> int:
-        if state.terminal_test():
-            return state.utility()
+
         score = 0
         
         # Check for 2-in-a-rows for each player that can become 3-in-a-row, higher weight when open on both ends
@@ -225,15 +255,15 @@ class DC3Agent:
                             # Check closest distance to another piece of same colour
                             distance = self.closest_distance_piece(state, row, col - 1, player)
                             if player == 0:
-                                score += 50 * (10 - distance)
+                                score += max(0, 50 * (10 - distance))
                             else:
-                                score -= 50 * (10 - distance)
-                        elif col < 4 and state.grid[row][col + 2] is None:
+                                score -= max(0, 50 * (10 - distance))
+                        elif col < 3 and state.grid[row][col + 2] is None:
                             distance = self.closest_distance_piece(state, row, col + 2, player)
                             if player == 0:
-                                score += 50 * (10 - distance)
+                                score += max(0, 50 * (10 - distance))
                             else:
-                                score -= 50 * (10 - distance)
+                                score -= max(0, 50 * (10 - distance))
                         else:
                             if player == 0:
                                 score += 50
@@ -245,15 +275,15 @@ class DC3Agent:
                         if row > 0 and state.grid[row - 1][col] is None:
                             distance = self.closest_distance_piece(state, row - 1, col, player)
                             if player == 0:
-                                score += 50 * (10 - distance)
+                                score += max(0, 50 * (10 - distance))
                             else:
-                                score -= 50 * (10 - distance)
+                                score -= max(0, 50 * (10 - distance))
                         elif row < 2 and state.grid[row + 2][col] is None:
-                            distance = self.closest_distance_piece(state, row - 1 if row > 0 and state.grid[row - 1][col] is None else row + 2, col, player)
+                            distance = self.closest_distance_piece(state, row +2, col, player)
                             if player == 0:
-                                score += 50 * (10 - distance)
+                                score += max(0, 50 * (10 - distance))
                             else:
-                                score -= 50 * (10 - distance)
+                                score -= max(0, 50 * (10 - distance))
                         else:
                             if player == 0:
                                 score += 50
@@ -265,15 +295,15 @@ class DC3Agent:
                         if row > 0 and col > 0 and state.grid[row - 1][col - 1] is None:
                             distance = self.closest_distance_piece(state, row - 1, col - 1, player)
                             if player == 0:
-                                score += 50 * (10 - distance)
+                                score += max(0, 50 * (10 - distance))
                             else:
-                                score -= 50 * (10 - distance)
-                        elif row < 3 and col < 4 and state.grid[row + 2][col + 2] is None:
+                                score -= max(0, 50 * (10 - distance))
+                        elif row < 2 and col < 3 and state.grid[row + 2][col + 2] is None:
                             distance = self.closest_distance_piece(state, row + 2, col + 2, player)
                             if player == 0:
-                                score += 50 * (10 - distance)
+                                score += max(0, 50 * (10 - distance))
                             else:
-                                score -= 50 * (10 - distance)
+                                score -= max(0, 50 * (10 - distance))
                         else:
                             if player == 0:
                                 score += 50
@@ -285,14 +315,15 @@ class DC3Agent:
                         if row > 0 and col < 4 and state.grid[row - 1][col + 1] is None:
                             distance = self.closest_distance_piece(state, row - 1, col + 1, player)
                             if player == 0:
-                                score += 50 * (10 - distance)
+                                score += max(0, 50 * (10 - distance))
                             else:
-                                score -= 50 * (10 - distance)
-                        elif row < 3 and col > 0 and state.grid[row + 2][col - 2] is None:
+                                score -= max(0, 50 * (10 - distance))
+                        elif row < 2 and col > 1 and state.grid[row + 2][col - 2] is None:
+                            distance = self.closest_distance_piece(state, row + 2, col - 2, player)
                             if player == 0:
-                                score += 50 * (10 - distance)
+                                score += max(0, 50 * (10 - distance))
                             else:
-                                score -= 50 * (10 - distance)
+                                score -= max(0, 50 * (10 - distance))
                         else:
                             if player == 0:
                                 score += 50
@@ -318,7 +349,7 @@ class DC3Agent:
                     distance = abs(r - row) + abs(c - col)
                     if distance < min_distance:
                         min_distance = distance
-        return min_distance
+        return min_distance if min_distance != float('inf') else 0
 
     def move_to_string(self, move: Tuple[Tuple[int, int], Tuple[int, int]]) -> str:
         # Convert move tuple to server format string
