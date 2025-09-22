@@ -49,7 +49,8 @@ class DC3:
             return (x, y), (x - 1, y)
         else:
             raise ValueError("Invalid direction")
-    
+        
+    '''
     def draw_board(self):
         # Column numbers
         print("  1 2 3 4 5")  
@@ -62,7 +63,7 @@ class DC3:
                 else:
                     row_str.append(' ')
             print(f"{row + 1} " + ','.join(row_str))
-        print()
+        print()'''
         
     def check_win_state(self) -> Optional[int]:
         # Check if 3 consecutive pieces of the same colour exist
@@ -164,28 +165,28 @@ class DC3Agent:
 
     # Alpha Beta pruning is written utilizing pseudocode from AIMA textbook
     def alpha_beta(self, state: DC3) -> Tuple[Tuple[int, int], Tuple[int, int]]:
-        self.trans_table = {}
         v = float('-inf')
         best_move = None
         alpha = float('-inf')
         beta = float('inf')
+        # Track the depth used to reach the score, lower depths are preferred
         best_depth = float('inf')
 
         for move in state.get_possible_moves():
             new_state = state.move(move)
             score, score_depth = self.min_value(new_state, self.depth - 1, alpha, beta)
-            move_str = self.move_to_string(move)
-            print(f"Evaluating Move: {move_str} with value {score} and depth used {score_depth}")
+            move_str = self.move_to_string(move) #debug
+            print(f"Evaluating Move: {move_str} with value {score} and depth used {score_depth}") #debug
 
             if score > v or (score == v and score_depth < best_depth):
                 v = score
                 best_move = move
                 best_depth = score_depth
-                print(f"New Best Move: {move_str} with value {score} and depth used {score_depth}")
+                print(f"New Best Move: {move_str} with value {score} and depth used {score_depth}") #debug
 
 
             alpha = max(alpha, v)
-        print(f"Best Move: {self.move_to_string(best_move)} with value {v}")
+        print(f"Best Move: {self.move_to_string(best_move)} with value {v}") #debug
         return best_move
 
     def max_value(self, state: DC3, depth: int, alpha: float, beta: float) -> Tuple[int, int]:
@@ -196,9 +197,11 @@ class DC3Agent:
 
         v = float('-inf')
         best_depth = float('inf')
+
         for move in state.get_possible_moves():
             new_state = state.move(move)
             score, score_depth = self.min_value(new_state, depth - 1, alpha, beta)
+            # lower depth is kept -> allows for quicker wins (i.e. win in next move)
             if score > v or (score == v and score_depth < best_depth):
                 v = score
                 best_depth = score_depth
@@ -216,9 +219,11 @@ class DC3Agent:
 
         v = float('inf')
         best_depth = float('inf')
+
         for move in state.get_possible_moves():
             new_state = state.move(move)
             score, score_depth = self.max_value(new_state, depth - 1, alpha, beta)
+            # lower depth is kept -> allows for quicker wins (i.e. win in next move)
             if score < v or (score == v and score_depth < best_depth):
                 v = score
                 best_depth = score_depth
@@ -230,19 +235,17 @@ class DC3Agent:
 
     def heuristic(self, state: DC3) -> int:
         # Check if state was evaluated before in transposition table
-        '''position = str(state.grid) + str(state.current_player)
+        position = str(state.grid) + str(state.current_player)
         if position in self.trans_table:
-            return self.trans_table[position]'''
+            return self.trans_table[position]
         
         # Evaluate heuristic score for the state and store
         score = self.calculate_heuristic(state)
-        #self.trans_table[position] = score
+        self.trans_table[position] = score
         return score
 
     def calculate_heuristic(self, state: DC3) -> int:
-
         score = 0
-        
         # Check for 2-in-a-rows for each player that can become 3-in-a-row, higher weight when open on both ends
         for row in range(4):
             for col in range(5):
@@ -336,12 +339,137 @@ class DC3Agent:
         else:
             score -= len(state.get_possible_moves()) * 10
         
+        # Blocking two-in-a-rows of opponent
+        opponent = 1 - state.current_player
+        for row in range(4):
+            for col in range(5):
+                if state.grid[row][col] == opponent:
+                    # horizontal check for 2 consecutive same colour pieces
+                    if col <= 3 and state.grid[row][col + 1] == opponent:
+                        if col > 0 and state.grid[row][col - 1] is None :
+                            distance = self.closest_distance_piece(state, row, col - 1, state.current_player)
+                            # if can block in <=2 move
+                            if distance <= 2:
+                                if state.current_player == 0:
+                                    score += 100
+                                else:
+                                    score -= 100
+                            else:
+                                if state.current_player == 0:
+                                    score -= 200
+                                else:
+                                    score += 200
+
+                    if col < 3 and state.grid[row][col + 2] == opponent:
+                        if col < 3 and state.grid[row][col + 2] is None:
+                            distance = self.closest_distance_piece(state, row, col + 2, state.current_player)
+                            # if can block in <=2 move
+                            if distance <= 2:
+                                if state.current_player == 0:
+                                    score += 100
+                                else:
+                                    score -= 100
+                            else:
+                                if state.current_player == 0:
+                                    score -= 200
+                                else:
+                                    score += 200
+                                
+                    
+                    # vertical check for 2 consecutive same colour pieces
+                    if row <= 2 and state.grid[row + 1][col] == opponent:
+                        if row > 0 and state.grid[row - 1][col] is None:
+                            distance = self.closest_distance_piece(state, row - 1, col, state.current_player)
+                            # if can block in <=2 move
+                            if distance <= 2:
+                                if state.current_player == 0:
+                                    score += 100
+                                else:
+                                    score -= 100
+                            else:
+                                if state.current_player == 0:
+                                    score -= 200
+                                else:
+                                    score += 200 
+                        if row < 2 and state.grid[row + 2][col] is None:
+                            distance = self.closest_distance_piece(state, row + 2, col, state.current_player)
+                            # if can block in <=2 move
+                            if distance <= 2:
+                                if state.current_player == 0:
+                                    score += 100
+                                else:
+                                    score -= 100
+                            else:
+                                if state.current_player == 0:
+                                    score -= 200
+                                else:
+                                    score += 200
+
+                    # diagonal check (down-right) for 2 consecutive same colour pieces
+                    if row <= 2 and col <= 3 and (state.grid[row + 1][col + 1] == opponent):
+                        if (row > 0 and col > 0 and state.grid[row - 1][col - 1] is None):
+                            distance = self.closest_distance_piece(state, row - 1, col - 1, state.current_player)
+                            # if can block in <=2 move
+                            if distance <= 2:
+                                if state.current_player == 0:
+                                    score += 100
+                                else:
+                                    score -= 100
+                            else:
+                                if state.current_player == 0:
+                                    score -= 200
+                                else:
+                                    score += 200
+
+                        if (row < 2 and col < 3 and state.grid[row + 2][col + 2] is None):
+                            distance = self.closest_distance_piece(state, row + 2, col + 2, state.current_player)
+                            # if can block in <=2 move
+                            if distance <= 2:
+                                if state.current_player == 0:
+                                    score += 100
+                                else:
+                                    score -= 100
+                            else:
+                                if state.current_player == 0:
+                                    score -= 200
+                                else:
+                                    score += 200
+
+                    # diagonal check (down-left) for 2 consecutive same colour pieces
+                    if row <= 2 and col >= 1 and (state.grid[row + 1][col - 1] == opponent):
+                        if row > 0 and col < 4 and state.grid[row - 1][col + 1] is None:
+                            distance = self.closest_distance_piece(state, row - 1, col + 1, state.current_player)
+                            # if can block in <=2 move
+                            if distance <= 2:
+                                if state.current_player == 0:
+                                    score += 100
+                                else:
+                                    score -= 100
+                            else:
+                                if state.current_player == 0:
+                                    score -= 200
+                                else:
+                                    score += 200
+
+                        if row < 2 and col > 1 and state.grid[row + 2][col - 2] is None:
+                            distance = self.closest_distance_piece(state, row + 2, col - 2, state.current_player)
+                            # if can block in <=2 move
+                            if distance <= 2:
+                                if state.current_player == 0:
+                                    score += 100
+                                else:
+                                    score -= 100
+                            else:
+                                if state.current_player == 0:
+                                    score -= 200
+                                else:
+                                    score += 200
 
 
         return score
     
     def closest_distance_piece(self, state: DC3, row: int, col: int, player: int) -> int:
-        # Calculate Manhattan distance to the closest piece to the two-in-a-row
+        # Calculate Manhattan distance to the closest piece to a two-in-a-row
         min_distance = float('inf')
         for r in range(4):
             for c in range(5):
@@ -378,7 +506,7 @@ class ServerGame:
         self.server_port = server_port
         self.game_id = game_id
         self.color = color.lower()
-        self.agent = DC3Agent(depth=5)
+        self.agent = DC3Agent(depth=6)
         self.game_state = DC3()
         self.my_player = 0 if color.lower() == 'white' else 1
         self.socket = None
@@ -441,7 +569,7 @@ class ServerGame:
                         print(f"Error receiving confirmation: {e}")
                         break
                     
-                    # Check if game ended after my move
+                    # Check if game ended after agent move
                     if self.game_state.terminal_test():
                         self.draw_board(self.game_state)
                         winner = self.game_state.check_win_state()
@@ -494,14 +622,13 @@ class ServerGame:
 
 def main():
     if len(sys.argv) != 4:
-        print("Usage: python dc3_server_agent.py <server_host> <game_id> <color>")
-        print("Example: python dc3_server_agent.py 156trlinux-1.ece.mcgill.ca game37 white")
+        print("Usage: python dc3newheuristic.py <server_host> <game_id> <color>")
         sys.exit(1)
     
     server_host = sys.argv[1]
     game_id = sys.argv[2]
     color = sys.argv[3]
-    server_port = 12345  # Default port from the server code
+    server_port = 12345  
     
     if color.lower() not in ['white', 'black']:
         print("Color must be 'white' or 'black'")
