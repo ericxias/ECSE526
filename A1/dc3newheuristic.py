@@ -359,9 +359,7 @@ class DC3Agent:
                                     score -= 200
                                 else:
                                     score += 200
-
-                    if col < 3 and state.grid[row][col + 2] == opponent:
-                        if col < 3 and state.grid[row][col + 2] is None:
+                        elif col < 3 and state.grid[row][col + 2] is None:
                             distance = self.closest_distance_piece(state, row, col + 2, state.current_player)
                             # if can block in <=2 move
                             if distance <= 2:
@@ -406,8 +404,8 @@ class DC3Agent:
                                     score += 200
 
                     # diagonal check (down-right) for 2 consecutive same colour pieces
-                    if row <= 2 and col <= 3 and (state.grid[row + 1][col + 1] == opponent):
-                        if (row > 0 and col > 0 and state.grid[row - 1][col - 1] is None):
+                    if row <= 2 and col <= 3 and state.grid[row + 1][col + 1] == opponent:
+                        if row > 0 and col > 0 and state.grid[row - 1][col - 1] is None:
                             distance = self.closest_distance_piece(state, row - 1, col - 1, state.current_player)
                             # if can block in <=2 move
                             if distance <= 2:
@@ -421,7 +419,7 @@ class DC3Agent:
                                 else:
                                     score += 200
 
-                        if (row < 2 and col < 3 and state.grid[row + 2][col + 2] is None):
+                        if row < 2 and col < 3 and state.grid[row + 2][col + 2] is None:
                             distance = self.closest_distance_piece(state, row + 2, col + 2, state.current_player)
                             # if can block in <=2 move
                             if distance <= 2:
