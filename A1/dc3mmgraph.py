@@ -1,10 +1,12 @@
 import socket
 import sys
 import copy
+import time
 from typing import List, Tuple, Optional
 
+# Game Logic
 class DC3:
-    def __init__(self):
+    def __init__(self, rows = 4, cols = 5):
         # initialize 4x5 grid with White = 0, Black = 1, None = white space
         self.grid = [
             [0, None, None, None, 1],
@@ -14,22 +16,25 @@ class DC3:
         ]
         self.current_player = 0 
         self.grid_history = []
+        self.rows = rows
+        self.cols = cols
 
     def get_possible_moves(self) -> List[Tuple[Tuple[int, int], Tuple[int, int]]]:
         # Valid moves for current player
         moves = []
-        directions = [(-1, 0), (1, 0), (0, 1), (0, -1)]  # N, S, E, W
-        for row in range(4):
-            for col in range(5):
+        # N, S, E, W
+        directions = [(-1, 0), (1, 0), (0, 1), (0, -1)]  
+        for row in range(self.rows):
+            for col in range(self.cols):
                 if self.grid[row][col] == self.current_player:
                     for dr, dc in directions:
                         new_row, new_col = row + dr, col + dc
-                        if 0 <= new_row < 4 and 0 <= new_col < 5 and self.grid[new_row][new_col] is None:
+                        if 0 <= new_row < self.rows and 0 <= new_col < self.cols and self.grid[new_row][new_col] is None:
                             moves.append(((col, row), (new_col, new_row)))
         return moves
     
     def parse_move(self, move: str) -> Tuple[Tuple[int, int], Tuple[int, int]]:
-        # Parse move from string format to tuple, 1-indexed
+        # Parse move from string format to tuple, 1-indexed (mainly for testing/debugging)
         if len(move) < 3 or len(move) > 3:
             raise ValueError("Invalid move")
         
@@ -50,30 +55,29 @@ class DC3:
         
     def check_win_state(self) -> Optional[int]:
         # Check if 3 consecutive pieces of the same colour exist
-        for row in range(4):
-            for col in range(5):
+        for row in range(self.rows):
+            for col in range(self.cols):
                 if self.grid[row][col] is not None:
                     player = self.grid[row][col]
 
                     # horizontal check for 3 consecutive same colour pieces
-                    if col <= 2 and (self.grid[row][col + 1] == player and self.grid[row][col + 2] == player ):
+                    if col <= self.cols - 3 and (self.grid[row][col + 1] == player and self.grid[row][col + 2] == player):
                         return player
                     
                     # vertical check for 3 consecutive same colour pieces
-                    if row <= 1 and (self.grid[row + 1][col] == player and self.grid[row + 2][col] == player):
+                    if row <= self.rows - 3 and (self.grid[row + 1][col] == player and self.grid[row + 2][col] == player):
                         return player
                     
                     # diagonal check (down-right) for 3 consecutive same colour pieces
-                    if row <= 1 and col <= 2 and (self.grid[row + 1][col + 1] == player and self.grid[row + 2][col + 2] == player):
+                    if row <= self.rows - 3 and col <= self.cols - 3 and (self.grid[row + 1][col + 1] == player and self.grid[row + 2][col + 2] == player):
                         return player
                     
                     # diagonal check (down-left) for 3 consecutive same colour pieces
-                    if row <= 1 and col >= 2 and (self.grid[row + 1][col - 1] == player and self.grid[row + 2][col - 2] == player):
-                        return player               
+                    if row <= self.rows - 3 and col >= 2 and (self.grid[row + 1][col - 1] == player and self.grid[row + 2][col - 2] == player):
+                        return player
         return None
 
     def terminal_test(self) -> bool:
-        # Check if win state or draw
         if self.check_win_state() is not None:
             return True
 
@@ -91,25 +95,25 @@ class DC3:
         try:
             # If move is a string, parse it (used in local debugging); if tuple, use directly
             if isinstance(move, str):
-                (x, y), (dest_x, dest_y) = self.parse_move(move)
+                (col, row), (to_col, to_row) = self.parse_move(move)
             else:
-                (x, y), (dest_x, dest_y) = move
+                (col, row), (to_col, to_row) = move
 
             # Check if initial position has current player's piece
-            if self.grid[y][x] != self.current_player:
+            if self.grid[row][col] != self.current_player:
                 raise ValueError("Piece does not belong to current player")
 
             # Check if move is legal
             possible_moves = self.get_possible_moves()
-            if ((x, y), (dest_x, dest_y)) not in possible_moves:
+            if ((col, row), (to_col, to_row)) not in possible_moves:
                 raise ValueError("Illegal move")
 
             # Execute move
             new_state = copy.deepcopy(self)
 
-            piece =  new_state.grid[y][x]
-            new_state.grid[y][x] = None
-            new_state.grid[dest_y][dest_x] = piece
+            piece =  new_state.grid[row][col]
+            new_state.grid[row][col] = None
+            new_state.grid[to_row][to_col] = piece
 
             if new_state.current_player == 0:
                 new_state.current_player = 1
@@ -125,20 +129,29 @@ class DC3:
     def utility(self) -> int:
         winner = self.check_win_state()
         if winner == 0:
-            return float('inf')
+            return 10000
         elif winner == 1:
-            return float('-inf')
+            return -10000
         else:
             return 0
 
+# AI Agent with Alpha-Beta Pruning
 class DC3Agent:
 
     def __init__(self, depth: int):
         self.depth = depth
-        self.nodes_traveled = 0
+        self.nodes_explored = 0
+        self.moves_made = 0
+        self.total_nodes = 0
+        self.total_time = 0.0
+        self.move_times = []
 
     # Minimax decision is written utilizing pseudocode from AIMA textbook
     def minimax_decision(self, state: DC3) -> Tuple[Tuple[int, int], Tuple[int, int]]:
+        # Reset node counter and start timing for this move
+        nodes_before = self.nodes_explored
+        start_time = time.time()
+        
         v = float('-inf')
         best_move = None
 
@@ -150,10 +163,29 @@ class DC3Agent:
                 v = result
                 best_move = move
 
+        # Calculate timing and statistics for this move
+        end_time = time.time()
+        move_time = end_time - start_time
+        nodes_this_move = self.nodes_explored - nodes_before
+        
+        self.moves_made += 1
+        self.total_nodes += nodes_this_move
+        self.total_time += move_time
+        self.move_times.append(move_time)
+        
+        # Print move statistics
+        average_nodes = self.total_nodes / self.moves_made
+        average_time = self.total_time / self.moves_made
+        
+        print(f"Move {self.moves_made}: Explored {nodes_this_move} nodes in {move_time:.3f}s")
+        print(f"Average nodes per move: {average_nodes:.1f}")
+        print(f"Average time per move: {average_time:.3f}s")
+        print(f"Nodes per second: {nodes_this_move / move_time:.0f}")
+
         return best_move
 
     def max_value(self, state: DC3, depth: int) -> int:
-        self.nodes_traveled += 1
+        self.nodes_explored += 1  # Count this node
 
         if state.terminal_test():
             return state.utility()
@@ -169,7 +201,7 @@ class DC3Agent:
         return v
 
     def min_value(self, state: DC3, depth: int) -> int:
-        self.nodes_traveled += 1
+        self.nodes_explored += 1  # Count this node
 
         if state.terminal_test():
             return state.utility()
@@ -227,6 +259,32 @@ class DC3Agent:
         
         # Convert to 1-indexed and format
         return f"{x + 1}{y + 1}{direction}"
+
+    def get_statistics(self) -> dict:
+        """Return performance statistics"""
+        if self.moves_made == 0:
+            return {
+                "moves_made": 0, 
+                "total_nodes": 0, 
+                "average_nodes_per_move": 0,
+                "total_time": 0.0,
+                "average_time_per_move": 0.0,
+                "average_nodes_per_second": 0.0
+            }
+        
+        avg_time = self.total_time / self.moves_made
+        avg_nodes = self.total_nodes / self.moves_made
+        avg_nodes_per_sec = avg_nodes / avg_time if avg_time > 0 else 0
+        
+        return {
+            "moves_made": self.moves_made,
+            "total_nodes": self.total_nodes,
+            "average_nodes_per_move": avg_nodes,
+            "total_time": self.total_time,
+            "average_time_per_move": avg_time,
+            "average_nodes_per_second": avg_nodes_per_sec,
+            "move_times": self.move_times.copy()
+        }
 
 # Server communication generated by GitHub Copilot, utilizing previously defined play_game logic
 class ServerGame:
@@ -344,13 +402,26 @@ class ServerGame:
         except Exception as e:
             print(f"Game error: {e}")
         finally:
+            # Print final statistics
+            stats = self.agent.get_statistics()
+            print(f"\n=== Game Statistics ===")
+            print(f"Moves made: {stats['moves_made']}")
+            print(f"Total nodes explored: {stats['total_nodes']}")
+            print(f"Average nodes per move: {stats['average_nodes_per_move']:.1f}")
+            print(f"Total time: {stats['total_time']:.3f}s")
+            print(f"Average time per move: {stats['average_time_per_move']:.3f}s")
+            print(f"Average nodes per second: {stats['average_nodes_per_second']:.0f}")
+            
+            if stats['move_times']:
+                print(f"Min time per move: {min(stats['move_times']):.3f}s")
+                print(f"Max time per move: {max(stats['move_times']):.3f}s")
+            
             if self.socket:
                 self.socket.close()
 
 def main():
     if len(sys.argv) != 4:
-        print("Usage: python dc3_server_agent.py <server_host> <game_id> <color>")
-        print("Example: python dc3_server_agent.py 156trlinux-1.ece.mcgill.ca game37 white")
+        print("Usage: python dc3mm.py <server_host> <game_id> <color>")
         sys.exit(1)
     
     server_host = sys.argv[1]

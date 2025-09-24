@@ -5,7 +5,7 @@ from typing import List, Tuple, Optional
 
 # Game Logic
 class DC3:
-    def __init__(self):
+    def __init__(self, rows = 4, cols = 5):
         # initialize 4x5 grid with White = 0, Black = 1, None = white space
         self.grid = [
             [0, None, None, None, 1],
@@ -15,18 +15,20 @@ class DC3:
         ]
         self.current_player = 0 
         self.grid_history = []
+        self.rows = rows
+        self.cols = cols
 
     def get_possible_moves(self) -> List[Tuple[Tuple[int, int], Tuple[int, int]]]:
         # Valid moves for current player
         moves = []
         # N, S, E, W
         directions = [(-1, 0), (1, 0), (0, 1), (0, -1)]  
-        for row in range(4):
-            for col in range(5):
+        for row in range(self.rows):
+            for col in range(self.cols):
                 if self.grid[row][col] == self.current_player:
                     for dr, dc in directions:
                         new_row, new_col = row + dr, col + dc
-                        if 0 <= new_row < 4 and 0 <= new_col < 5 and self.grid[new_row][new_col] is None:
+                        if 0 <= new_row < self.rows and 0 <= new_col < self.cols and self.grid[new_row][new_col] is None:
                             moves.append(((col, row), (new_col, new_row)))
         return moves
     
@@ -52,26 +54,26 @@ class DC3:
         
     def check_win_state(self) -> Optional[int]:
         # Check if 3 consecutive pieces of the same colour exist
-        for row in range(4):
-            for col in range(5):
+        for row in range(self.rows):
+            for col in range(self.cols):
                 if self.grid[row][col] is not None:
                     player = self.grid[row][col]
 
                     # horizontal check for 3 consecutive same colour pieces
-                    if col <= 2 and (self.grid[row][col + 1] == player and self.grid[row][col + 2] == player ):
+                    if col <= self.cols - 3 and (self.grid[row][col + 1] == player and self.grid[row][col + 2] == player):
                         return player
                     
                     # vertical check for 3 consecutive same colour pieces
-                    if row <= 1 and (self.grid[row + 1][col] == player and self.grid[row + 2][col] == player):
+                    if row <= self.rows - 3 and (self.grid[row + 1][col] == player and self.grid[row + 2][col] == player):
                         return player
                     
                     # diagonal check (down-right) for 3 consecutive same colour pieces
-                    if row <= 1 and col <= 2 and (self.grid[row + 1][col + 1] == player and self.grid[row + 2][col + 2] == player):
+                    if row <= self.rows - 3 and col <= self.cols - 3 and (self.grid[row + 1][col + 1] == player and self.grid[row + 2][col + 2] == player):
                         return player
                     
                     # diagonal check (down-left) for 3 consecutive same colour pieces
-                    if row <= 1 and col >= 2 and (self.grid[row + 1][col - 1] == player and self.grid[row + 2][col - 2] == player):
-                        return player               
+                    if row <= self.rows - 3 and col >= 2 and (self.grid[row + 1][col - 1] == player and self.grid[row + 2][col - 2] == player):
+                        return player
         return None
 
     def terminal_test(self) -> bool:
@@ -90,27 +92,27 @@ class DC3:
         # Check if target location move is legal
         # Execute move
         try:
-            # If move is a string, parse it (used in local debugging); if tuple, use directly
+            # If move is a string, parse it; if tuple, use directly
             if isinstance(move, str):
-                (x, y), (dest_x, dest_y) = self.parse_move(move)
+                (col, row), (to_col, to_row) = self.parse_move(move)
             else:
-                (x, y), (dest_x, dest_y) = move
+                (col, row), (to_col, to_row) = move
 
             # Check if initial position has current player's piece
-            if self.grid[y][x] != self.current_player:
+            if self.grid[row][col] != self.current_player:
                 raise ValueError("Piece does not belong to current player")
 
             # Check if move is legal
             possible_moves = self.get_possible_moves()
-            if ((x, y), (dest_x, dest_y)) not in possible_moves:
+            if ((col, row), (to_col, to_row)) not in possible_moves:
                 raise ValueError("Illegal move")
 
             # Execute move
             new_state = copy.deepcopy(self)
 
-            piece =  new_state.grid[y][x]
-            new_state.grid[y][x] = None
-            new_state.grid[dest_y][dest_x] = piece
+            piece =  new_state.grid[row][col]
+            new_state.grid[row][col] = None
+            new_state.grid[to_row][to_col] = piece
 
             if new_state.current_player == 0:
                 new_state.current_player = 1
@@ -126,9 +128,9 @@ class DC3:
     def utility(self) -> int:
         winner = self.check_win_state()
         if winner == 0:
-            return float('inf')
+            return 10000
         elif winner == 1:
-            return float('-inf')
+            return -10000
         else:
             return 0
 
@@ -137,7 +139,8 @@ class DC3Agent:
 
     def __init__(self, depth: int):
         self.depth = depth
-        self.nodes_traveled = 0
+        # Transposition table to store evaluated states
+        self.trans_table = {}
 
     # Alpha Beta pruning is written utilizing pseudocode from AIMA textbook
     def alpha_beta(self, state: DC3) -> Tuple[Tuple[int, int], Tuple[int, int]]:
@@ -159,7 +162,6 @@ class DC3Agent:
         return best_move
 
     def max_value(self, state: DC3, depth: int, alpha: float, beta: float) -> int:
-        self.nodes_traveled += 1
 
         if state.terminal_test():
             return state.utility()
@@ -178,7 +180,6 @@ class DC3Agent:
         return v
 
     def min_value(self, state: DC3, depth: int, alpha: float, beta: float) -> int:
-        self.nodes_traveled += 1
 
         if state.terminal_test():
             return state.utility()
@@ -197,6 +198,17 @@ class DC3Agent:
         return v
 
     def heuristic(self, state: DC3) -> int:
+        # Check if state was evaluated before in transposition table
+        position = str(state.grid) + str(state.current_player)
+        if position in self.trans_table:
+            return self.trans_table[position]
+        
+        # Evaluate heuristic score for the state and store
+        score = self.calculate_heuristic(state)
+        self.trans_table[position] = score
+        return score
+
+    def calculate_heuristic(self, state: DC3) -> int:
         # Simple heuristic: count number of 2-in-a-rows for each player
         score = 0
         for row in range(4):
@@ -243,13 +255,13 @@ class DC3Agent:
 # Server communication generated by GitHub Copilot, utilizing previously defined game loop logic as a prompt, 
 # Assisted with server communication
 class ServerGame:
-    def __init__(self, server_host, server_port, game_id, color):
+    def __init__(self, server_host, server_port, game_id, color, rows=4, cols=5):
         self.server_host = server_host
         self.server_port = server_port
         self.game_id = game_id
         self.color = color.lower()
         self.agent = DC3Agent(depth=4)
-        self.game_state = DC3()
+        self.game_state = DC3(rows, cols)
         self.my_player = 0 if color.lower() == 'white' else 1
         self.socket = None
         
@@ -273,11 +285,10 @@ class ServerGame:
         
     def draw_board(self, state: DC3):
         # Column numbers
-        print("  1 2 3 4 5")  
-        for row in range(4):
-            # Row number
+        print("  " + " ".join(str(i+1) for i in range(state.cols)))
+        for row in range(state.rows):
             row_str = []  
-            for col in range(5):
+            for col in range(state.cols):
                 if state.grid[row][col] is not None:
                     row_str.append(str(state.grid[row][col]))
                 else:
@@ -302,7 +313,7 @@ class ServerGame:
                     self.socket.send((move_str + "\n").encode())
                     self.game_state = self.game_state.move(move_str)
                     
-                    # Wait for server confirmation (echo of our move)
+                    # Wait for server confirmation
                     try:
                         response = self.socket.recv(1024).decode().strip()
                         print(f"Server confirmed: {response}")
@@ -310,7 +321,7 @@ class ServerGame:
                         print(f"Error receiving confirmation: {e}")
                         break
                     
-                    # Check if game ended after my move
+                    # Check if game ended after agent move
                     if self.game_state.terminal_test():
                         self.draw_board(self.game_state)
                         winner = self.game_state.check_win_state()
@@ -322,7 +333,7 @@ class ServerGame:
                             print("Draw!")
                         break
                 else:
-                    # Opponent's turn - wait for their move
+                    # Opponent's turn
                     print("Waiting for opponent's move...")
                     
                     try:
@@ -361,10 +372,10 @@ class ServerGame:
             if self.socket:
                 self.socket.close()
 
+
 def main():
     if len(sys.argv) != 4:
-        print("Usage: python dc3_server_agent.py <server_host> <game_id> <color>")
-        print("Example: python dc3_server_agent.py 156trlinux-1.ece.mcgill.ca game37 white")
+        print("Usage: python dc3ab.py <server_host> <game_id> <color>")
         sys.exit(1)
     
     server_host = sys.argv[1]
