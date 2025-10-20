@@ -5,7 +5,6 @@ class GridWorld:
     def __init__(self):
         self.size = 4
         self.gamma = 0.9
-        self.r = -0.04  # reward for non-terminal states
         self.epsilon = 0.0001
         
         # Terminal states and their rewards
@@ -13,9 +12,6 @@ class GridWorld:
         
         # Blocked states
         self.blocked_states = {(3, 2), (1, 3)}
-        
-        # Start state
-        self.start_state = (4, 1)
         
         # Actions: 0=up, 1=right, 2=down, 3=left
         self.actions = ['up', 'right', 'down', 'left']
@@ -81,16 +77,16 @@ class GridWorld:
         transitions[next_state] = transitions.get(next_state, 0) + self.prob_right
         
         return transitions
-    
-    def get_reward(self, state: Tuple[int, int]) -> float:
+
+    def get_reward(self, state: Tuple[int, int], r: float) -> float:
         """Get reward for being in a state"""
         if state in self.terminal_states:
             return self.terminal_states[state]
-        return self.r
+        return r
     
-    def value_iteration(self) -> Dict:
+    def value_iteration(self, r: float) -> Dict:
         """Implement value iteration algorithm following Russell & Norvig pseudocode"""
-        print("Starting Value Iteration...")
+        #print("Starting Value Iteration...")
         
         # Initialize U and U' vectors of utilities for states in S, initially zero
         U = {}
@@ -136,14 +132,14 @@ class GridWorld:
                     max_expected_utility = max(max_expected_utility, expected_utility)
                 
                 # U'[s] <- R(s) + γ max_a∈A(s) Σ P(s' | s, a)U(s')
-                U_prime[state] = self.get_reward(state) + self.gamma * max_expected_utility
+                U_prime[state] = self.get_reward(state, r) + self.gamma * max_expected_utility
                 
                 # if |U'[s] - U[s]| > δ then δ <- |U'[s] - U[s]|
                 state_change = abs(U_prime[state] - U[state])
                 if state_change > delta:
                     delta = state_change
             
-            print(f"Iteration {iteration}: δ = {delta:.6f}")
+            #print(f"Iteration {iteration}: δ = {delta:.6f}")
             
             # until δ < epsilon(1-γ)/γ
             if delta < epsilon_threshold:
@@ -152,8 +148,8 @@ class GridWorld:
         
         # return U
         return U_prime
-    
-    def policy_evaluation(self, policy: Dict, max_iterations: int = 100) -> Dict:
+
+    def policy_evaluation(self, r: float, policy: Dict, max_iterations: int = 100) -> Dict:
         """Evaluate a given policy"""
         utilities = {state: 0.0 for state in self.valid_states if state not in self.terminal_states}
         for state in self.terminal_states:
@@ -175,14 +171,14 @@ class GridWorld:
                 
                 for next_state, prob in transitions.items():
                     expected_utility += prob * utilities[next_state]
-                
-                new_utilities[state] = self.get_reward(state) + self.gamma * expected_utility
-            
+
+                new_utilities[state] = self.get_reward(state, r) + self.gamma * expected_utility
+
             utilities = new_utilities
         
         return utilities
     
-    def policy_iteration(self) -> Dict:
+    def policy_iteration(self, r: float) -> Dict:
         """Implement policy iteration algorithm following Russell & Norvig pseudocode"""
         print("Starting Policy Iteration...")
         
@@ -209,7 +205,7 @@ class GridWorld:
             print(f"Policy Iteration {iteration}")
             
             # U <- POLICY-EVALUATION(pi, U, mdp)
-            U = self.policy_evaluation(pi, max_iterations=100)
+            U = self.policy_evaluation(r, pi, max_iterations=100)
             
             # unchanged? <- true
             unchanged = True
@@ -269,42 +265,44 @@ class GridWorld:
         A = np.zeros((n, n))
         b = np.zeros(n)
         
-        print("Setting up linear equations for policy evaluation...")
+        #print("Setting up linear equations for policy evaluation...")
     
         for index, state in enumerate(states):
-            print(f"Processing state {state} (index {index})")
+            #print(f"Processing state {state} (index {index})")
 
             if state in self.terminal_states:
                 A[index, index] = 1.0
                 b[index] = self.terminal_states[state]
-                print(f"  Terminal state. Set U[{state}] = {b[index]}")
+                #print(f"  Terminal state. Set U[{state}] = {b[index]}")
             else:
-                print(f"  Non-terminal state. Setting up equation for U[{state}]")
-                # To make the linear system Au = b, rearrange the Bellman equation: U(s) - γ Σ P(s'|s,a) U(s') = R(s) + R(terminal)
+                #print(f"  Non-terminal state. Setting up equation for U[{state}]")
+                # To make the linear system Au = b, rearrange the Bellman equation: U(s) - γ Σ P(s'|s,a) U(s') = R(s), where R(s) = reward
                 b[index] = reward
                 A[index, index] = 1.0
                 # transition probabilities for down action
                 transitions = self.get_transition_probs(state, 2)
-                print(f"  Transition probabilities for action 'down': {transitions}")
+                #print(f"  Transition probabilities for action 'down': {transitions}")
                 for next_state, prob in transitions.items():
                     if next_state in states:
                         # check if next state is a terminal state
                         if next_state in self.terminal_states:
+                            # the resulting probability γ P(s'|s,π) R(terminal) is added to b
                             b[index] += self.gamma * prob * self.terminal_states[next_state]
-                            print(f"    Next state {next_state} is terminal. Adding {self.gamma * prob * self.terminal_states[next_state]} to b[{index}]")
+                            #print(f"    Next state {next_state} is terminal. Adding {self.gamma * prob * self.terminal_states[next_state]} to b[{index}]")
                         else:
                             next_index = states.index(next_state)
                             if next_state == state:
                                 # staying in the same state, modify coefficient
                                 A[index, index] -= self.gamma * prob
-                                print(f"    Next state {next_state} is the same as current state. Adjusting A[{index},{index}] to {A[index, index]}")
+                                #print(f"    Next state {next_state} is the same as current state. Adjusting A[{index},{index}] to {A[index, index]}")
                             else:
                                 A[index, next_index] -= self.gamma * prob
-                                print(f"    Next state {next_state} is different from current state. Adjusting A[{index},{next_index}] to {A[index, next_index]}")
-                
-                print(f"  Final equation for state {state}: {A[index]} * U = {b[index]}")
+                                #print(f"    Next state {next_state} is different from current state. Adjusting A[{index},{next_index}] to {A[index, next_index]}")
+
+                #print(f"  Final equation for state {state}: {A[index]} * U = {b[index]}")
         return A, b
     
+    # Display logic generated by GitHub Copilot
     def display_linear_system_matrices(self):
         """Display the A matrix and b vector for both reward values"""
         
@@ -316,7 +314,14 @@ class GridWorld:
             print(f"\n{'='*20} r = {r_val} {'='*20}")
             
             A, b = self.pi_policy(r_val)
-            
+
+            # check if A is invertible
+            det_A = np.linalg.det(A)
+            if abs(det_A) < 1e-10:
+                print("Matrix A is singular and cannot be inverted.")
+            else:
+                print(f"Matrix A is invertible (determinant = {det_A:.6f}).")
+
             print(f"\nMatrix A ({len(A)}x{len(A[0])}):")
             np.set_printoptions(precision=4, suppress=True, linewidth=200)
             print(A)
@@ -324,18 +329,52 @@ class GridWorld:
             print(f"\nVector b:")
             print(b)
 
+    def calculate_cd(self):
+        # We need two different r values to solve for c and d
+        r1, r2 = -2.0, -1.0
+        
+        # Solve linear systems for both r values
+        A1, b1 = self.pi_policy(r1)
+        A2, b2 = self.pi_policy(r2)
+        
+        # Get utilities for both r values
+        u1 = np.linalg.solve(A1, b1)  # utilities when r = -0.2
+        u2 = np.linalg.solve(A2, b2)  # utilities when r = -0.4
+        
+        # Calculate d and c from the two solutions
+        # From u = c + rd, we have two equations per state:
+        # u1 = c + r1*d  and  u2 = c + r2*d
+        d = (u2 - u1) / (r2 - r1)  # Slope of the line u vs r
+        c = u1 - r1 * d            # y-intercept when r = 0
+        
+        print("\nLINEAR COEFFICIENTS for u = c + rd")
+        
+        print(f"State s32: c = {c[8]}, d = {d[8]}")
+        print(f"State s21: c = {c[4]}, d = {d[4]}")
+        print(f"State s44: c = {c[13]}, d = {d[13]}")
+        
+        return
+    
+    def value_iteration_graph(self):
+        r_values = np.arange(-4.0, 0.1, 0.1)
+        for r in r_values:
+            utilities = self.value_iteration(r)
+            u_32 = utilities[(3, 3)]
+            u_33 = utilities[(2, 3)]
+            u_23 = utilities[(2, 2)]
+            print(f"r: {r: .1f}, u_32: {u_32}, u_33: {u_33}, u_23: {u_23}")
         
 def main():
     """Main function to run both algorithms"""
     world = GridWorld()
     
     # Run Value Iteration - get utilities
-    vi_utilities = world.value_iteration()
+    value_iteration = world.value_iteration(-0.04)
     
     # Run Policy Iteration - get optimal policy
-    pi_policy = world.policy_iteration()
+    policy_iteration = world.policy_iteration(-0.04)
     
-    # Print results
+    # Result display logic generated by Github Copilot
     print("\nVALUE ITERATION Results:")
     print("=" * 50)
     print("\nState Utilities:")
@@ -346,7 +385,7 @@ def main():
             if (i, j) in world.blocked_states:
                 row_str += "  BLOCK  "
             else:
-                row_str += f"{vi_utilities[(i, j)]:8.4f} "
+                row_str += f"{value_iteration[(i, j)]:8.4f} "
         print(row_str)
     
     print("\nPOLICY ITERATION Results:")
@@ -362,7 +401,7 @@ def main():
             elif (i, j) in world.terminal_states:
                 row_str += " T  "
             else:
-                action = pi_policy[(i, j)]
+                action = policy_iteration[(i, j)]
                 if action is not None:
                     row_str += f" {action_symbols[action]}  "
                 else:
@@ -370,6 +409,8 @@ def main():
         print(row_str)
 
     world.display_linear_system_matrices()
+    world.calculate_cd()
+    #world.value_iteration_graph()
 
 
 if __name__ == "__main__":
