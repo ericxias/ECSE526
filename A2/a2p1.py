@@ -1,7 +1,7 @@
 import numpy as np
 from typing import Dict, Tuple, List, Set
 
-class GridWorld:
+class Grid:
     def __init__(self):
         self.size = 4
         self.gamma = 0.9
@@ -22,11 +22,8 @@ class GridWorld:
         self.prob_left = 0.2
         self.prob_right = 0.1
         
-        # Initialize utilities
-        self.utilities = {}
-        self.policy = {}
-        
         # Initialize all valid states
+        self.utilities = {}
         self.valid_states = set()
         for i in range(1, 5):
             for j in range(1, 5):
@@ -37,25 +34,18 @@ class GridWorld:
                     else:
                         self.utilities[(i, j)] = self.terminal_states[(i, j)]
     
-    def is_valid_state(self, state: Tuple[int, int]) -> bool:
-        """Check if a state is valid (within bounds and not blocked)"""
-        i, j = state
-        return (1 <= i <= 4 and 1 <= j <= 4 and 
-                state not in self.blocked_states)
-    
     def get_next_state(self, state: Tuple[int, int], action: int) -> Tuple[int, int]:
-        """Get next state given current state and action"""
         i, j = state
         di, dj = self.action_vectors[action]
         next_state = (i + di, j + dj)
         
         # If next state is invalid, stay in current state
-        if not self.is_valid_state(next_state):
-            return state
-        return next_state
+        if 1 <= i + di <= 4 and 1 <= j + dj <= 4 and next_state not in self.blocked_states:
+            return next_state
+        return state
     
-    def get_transition_probs(self, state: Tuple[int, int], action: int) -> Dict[Tuple[int, int], float]:
-        """Get transition probabilities for all possible next states"""
+    def get_transition_probs(self, state: Tuple[int, int], move: int) -> Dict[Tuple[int, int], float]:
+        # returns state transition probabilities P(s' | s, a)
         # terminal state -> stays in the same state
         if state in self.terminal_states:
             return {state: 1.0}
@@ -63,31 +53,27 @@ class GridWorld:
         transitions = {}
         
         # Forward movement, if next state is invalid, stays in the same state
-        next_state = self.get_next_state(state, action)
+        next_state = self.get_next_state(state, move)
         transitions[next_state] = transitions.get(next_state, 0) + self.prob_forward
         
         # Leftwards movement, if next state is invalid, stays in the same state
-        left_action = (action - 1) % 4
-        next_state = self.get_next_state(state, left_action)
+        left_move = (move - 1) % 4
+        next_state = self.get_next_state(state, left_move)
         transitions[next_state] = transitions.get(next_state, 0) + self.prob_left
 
         # Rightwards movement, if next state is invalid, stays in the same state
-        right_action = (action + 1) % 4
-        next_state = self.get_next_state(state, right_action)
+        right_move = (move + 1) % 4
+        next_state = self.get_next_state(state, right_move)
         transitions[next_state] = transitions.get(next_state, 0) + self.prob_right
         
         return transitions
 
     def get_reward(self, state: Tuple[int, int], r: float) -> float:
-        """Get reward for being in a state"""
         if state in self.terminal_states:
             return self.terminal_states[state]
         return r
     
-    def value_iteration(self, r: float) -> Dict:
-        """Implement value iteration algorithm following Russell & Norvig pseudocode"""
-        #print("Starting Value Iteration...")
-        
+    def value_iteration(self, r: float) -> Dict:        
         # Initialize U and U' vectors of utilities for states in S, initially zero
         U = {}
         U_prime = {}
@@ -99,154 +85,130 @@ class GridWorld:
             else:
                 U[state] = 0.0
                 U_prime[state] = 0.0
-        
-        iteration = 0
-        epsilon_threshold = self.epsilon * (1 - self.gamma) / self.gamma
-        
+
         while True:
-            iteration += 1
-            
-            # U <- U'
+            # U <- U', δ <- 0
             U = U_prime.copy()
-            
-            # δ, the maximum change in the utility of any state in an iteration
-            delta = 0
-            
+            delta = 0   
             # for each state s in S do
-            for state in self.valid_states:
-                if state in self.terminal_states:
+            for s in self.valid_states:
+                if s in self.terminal_states:
                     continue
                 
-                # Calculate max_a∈A(s) Σ P(s' | s, a)U(s')
-                max_expected_utility = float('-inf')
-                
+                max_utility = float('-inf')
+                # max_a Σ P(s' | s, a)U(s')
                 # Try all actions a in A(s)
-                for action in range(4):
-                    expected_utility = 0
-                    transitions = self.get_transition_probs(state, action)
-                    
+                for a in range(4):
+                    utility = 0
+                    transitions = self.get_transition_probs(s, a)
+
                     # Σ P(s' | s, a)U(s')
-                    for next_state, prob in transitions.items():
-                        expected_utility += prob * U[next_state]
-                    
-                    max_expected_utility = max(max_expected_utility, expected_utility)
+                    for s_prime, prob in transitions.items():
+                        utility += prob * U[s_prime]
+                    max_utility = max(max_utility, utility)
+                # U'[s] <- R(s) + γ max_a Σ P(s' | s, a)U(s')
+                U_prime[s] = self.get_reward(s, r) + self.gamma * max_utility
                 
-                # U'[s] <- R(s) + γ max_a∈A(s) Σ P(s' | s, a)U(s')
-                U_prime[state] = self.get_reward(state, r) + self.gamma * max_expected_utility
-                
-                # if |U'[s] - U[s]| > δ then δ <- |U'[s] - U[s]|
-                state_change = abs(U_prime[state] - U[state])
-                if state_change > delta:
-                    delta = state_change
-            
-            #print(f"Iteration {iteration}: δ = {delta:.6f}")
-            
+                # if |U'[s] - U[s]| > δ then δ ← |U'[s] - U[s]|
+                if abs(U_prime[s] - U[s]) > delta:
+                    delta = abs(U_prime[s] - U[s])
+                        
             # until δ < epsilon(1-γ)/γ
-            if delta < epsilon_threshold:
-                print(f"Converged after {iteration} iterations")
+            if delta < self.epsilon * (1 - self.gamma) / self.gamma:
                 break
         
-        # return U
         return U_prime
 
-    def policy_evaluation(self, r: float, policy: Dict, max_iterations: int = 100) -> Dict:
-        """Evaluate a given policy"""
-        utilities = {state: 0.0 for state in self.valid_states if state not in self.terminal_states}
-        for state in self.terminal_states:
-            utilities[state] = self.terminal_states[state]
-        
-        for _ in range(max_iterations):
-            new_utilities = utilities.copy()
-            
-            for state in self.valid_states:
-                if state in self.terminal_states:
-                    continue
-                
-                action = policy[state]
-                if action is None:
-                    continue
-                
-                expected_utility = 0
-                transitions = self.get_transition_probs(state, action)
-                
-                for next_state, prob in transitions.items():
-                    expected_utility += prob * utilities[next_state]
+    def policy_evaluation(self, r: float, policy: Dict, U: Dict) -> Dict:
+        # Simplified Bellman equation for policy evaluation Ui(s) = R(s) + γ s'Σ P(s'| s, pi i(s))Ui(s') = R(s) + γ Ui(s')
+        while True:
+            U_prime = {}
+            delta = 0.0
 
-                new_utilities[state] = self.get_reward(state, r) + self.gamma * expected_utility
+            for s in self.valid_states:
+                if s in self.terminal_states:
+                    U_prime[s] = self.terminal_states[s]
+                    continue
 
-            utilities = new_utilities
-        
-        return utilities
+                a = policy.get(s)
+                utility = 0
+                transitions = self.get_transition_probs(s, a)
+
+                # U(s) = R(s) + γ Σ P(s'|s,π(s)) U(s')
+                for s_prime, prob in transitions.items():
+                    utility += prob * U[s_prime]
+
+                U_prime[s] = self.get_reward(s, r) + self.gamma * utility
+
+                # if |U'[s] - U[s]| > δ then δ ← |U'[s] - U[s]|
+                if abs(U_prime[s] - U[s]) > delta:
+                    delta = abs(U_prime[s] - U[s])
+
+            U = U_prime
+
+            # until δ < epsilon(1-γ)/γ
+            if delta < self.epsilon * (1 - self.gamma) / self.gamma:
+                break
+        return U
+                
+                
     
     def policy_iteration(self, r: float) -> Dict:
-        """Implement policy iteration algorithm following Russell & Norvig pseudocode"""
-        print("Starting Policy Iteration...")
-        
-        # U, a vector of utilities for states in S, initially zero
+        # Initialize local variables pi and U
         U = {}
+        pi = {}
+
         for state in self.valid_states:
             if state in self.terminal_states:
                 U[state] = self.terminal_states[state]
             else:
                 U[state] = 0.0
-        
-        # pi, a policy vector indexed by state, initially random
-        pi = {}
+
         for state in self.valid_states:
             if state in self.terminal_states:
                 pi[state] = None
             else:
                 pi[state] = 0  # Start with 'up' action
-        
-        iteration = 0
-        
+                
         while True:
-            iteration += 1
-            print(f"Policy Iteration {iteration}")
-            
-            # U <- POLICY-EVALUATION(pi, U, mdp)
-            U = self.policy_evaluation(r, pi, max_iterations=100)
-            
-            # unchanged? <- true
+            # U <- Policy-Evaluation, unchanged <- true
+            U = self.policy_evaluation(r, pi, U)
             unchanged = True
-            
             # for each state s in S do
-            for state in self.valid_states:
-                if state in self.terminal_states:
+            for s in self.valid_states:
+                if s in self.terminal_states:
                     continue
-                
-                # Calculate max_a∈A(s) Σ P(s' | s, a)U[s']
-                max_action_value = float('-inf')
+                            
+                max_policy = float('-inf')
                 best_action = None
-                
+                # Calculate max_a Σ P(s' | s, a)U[s']
                 for action in range(4):
                     action_value = 0
-                    transitions = self.get_transition_probs(state, action)
+                    transitions = self.get_transition_probs(s, action)
                     
-                    # Σ P(s' | s, a)U[s']
-                    for next_state, prob in transitions.items():
-                        action_value += prob * U[next_state]
-                    
-                    if action_value > max_action_value:
-                        max_action_value = action_value
+                    # max_a Σ P(s' | s, a)U[s']
+                    for s_prime, prob in transitions.items():
+                        action_value += prob * U[s_prime]
+
+                    if action_value > max_policy:
+                        max_policy = action_value
                         best_action = action
                 
                 # Calculate current policy value: Σ P(s'|s, pi[s]) U[s']
-                current_policy_value = 0
-                transitions = self.get_transition_probs(state, pi[state])
-                for next_state, prob in transitions.items():
-                    current_policy_value += prob * U[next_state]
-                
+                current_policy = 0
+                transitions = self.get_transition_probs(s, pi[s])
+                for s_prime, prob in transitions.items():
+                    current_policy += prob * U[s_prime]
+
                 # if max_a∈A(s) Σ P(s' | s, a)U[s'] > Σ P(s'|s, pi[s]) U[s'] then do
-                if max_action_value > current_policy_value:
-                    # pi[s] <- argmax_a∈A(s) Σ P(s' | s, a)U[s']
-                    pi[state] = best_action
+                if max_policy > current_policy:
+                    # pi[s] <- max_a Σ P(s' | s, a)U[s']
+                    pi[s] = best_action
                     # unchanged? <- false
                     unchanged = False
             
             # until unchanged?
             if unchanged:
-                print(f"Policy converged after {iteration} iterations")
                 break
         
         # return pi
@@ -330,7 +292,7 @@ class GridWorld:
             print(b)
 
     def calculate_cd(self):
-        # We need two different r values to solve for c and d
+        # Solve for c and d with two different reward values
         r1, r2 = -2.0, -1.0
         
         # Solve linear systems for both r values
@@ -338,8 +300,8 @@ class GridWorld:
         A2, b2 = self.pi_policy(r2)
         
         # Get utilities for both r values
-        u1 = np.linalg.solve(A1, b1)  # utilities when r = -0.2
-        u2 = np.linalg.solve(A2, b2)  # utilities when r = -0.4
+        u1 = np.linalg.solve(A1, b1)  
+        u2 = np.linalg.solve(A2, b2)  
         
         # Calculate d and c from the two solutions
         # From u = c + rd, we have two equations per state:
@@ -355,7 +317,7 @@ class GridWorld:
         
         return
     
-    def value_iteration_graph(self):
+    def value_iteration_values(self):
         r_values = np.arange(-4.0, 0.1, 0.1)
         for r in r_values:
             utilities = self.value_iteration(r)
@@ -366,14 +328,14 @@ class GridWorld:
         
 def main():
     """Main function to run both algorithms"""
-    world = GridWorld()
+    grid = Grid()
     
     # Run Value Iteration - get utilities
-    value_iteration = world.value_iteration(-0.04)
+    value_iteration = grid.value_iteration(-0.04)
     
     # Run Policy Iteration - get optimal policy
-    policy_iteration = world.policy_iteration(-0.04)
-    
+    policy_iteration = grid.policy_iteration(-0.04)
+
     # Result display logic generated by Github Copilot
     print("\nVALUE ITERATION Results:")
     print("=" * 50)
@@ -382,7 +344,7 @@ def main():
     for i in range(1, 5):
         row_str = f"  {i}   "
         for j in range(1, 5):
-            if (i, j) in world.blocked_states:
+            if (i, j) in grid.blocked_states:
                 row_str += "  BLOCK  "
             else:
                 row_str += f"{value_iteration[(i, j)]:8.4f} "
@@ -396,9 +358,9 @@ def main():
     for i in range(1, 5):
         row_str = f"  {i}   "
         for j in range(1, 5):
-            if (i, j) in world.blocked_states:
+            if (i, j) in grid.blocked_states:
                 row_str += " ■  "
-            elif (i, j) in world.terminal_states:
+            elif (i, j) in grid.terminal_states:
                 row_str += " T  "
             else:
                 action = policy_iteration[(i, j)]
@@ -408,9 +370,9 @@ def main():
                     row_str += " -  "
         print(row_str)
 
-    world.display_linear_system_matrices()
-    world.calculate_cd()
-    #world.value_iteration_graph()
+    grid.display_linear_system_matrices()
+    grid.calculate_cd()
+    #grid.value_iteration_values()
 
 
 if __name__ == "__main__":
