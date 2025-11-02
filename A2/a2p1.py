@@ -3,36 +3,23 @@ from typing import Dict, Tuple, List, Set
 
 class Grid:
     def __init__(self):
-        self.size = 4
         self.gamma = 0.9
         self.epsilon = 0.0001
         
-        # Terminal states and their rewards
+        # Initialize blocked states, terminal states and rewards
         self.terminal_states = {(3, 4): -1, (4, 4): 1}
-        
-        # Blocked states
         self.blocked_states = {(3, 2), (1, 3)}
         
         # Actions: 0=up, 1=right, 2=down, 3=left
         self.actions = ['up', 'right', 'down', 'left']
         self.action_vectors = [(-1, 0), (0, 1), (1, 0), (0, -1)]
         
-        # Transition probabilities
-        self.prob_forward = 0.7
-        self.prob_left = 0.2
-        self.prob_right = 0.1
-        
         # Initialize all valid states
-        self.utilities = {}
-        self.valid_states = set()
+        self.valid_states = []
         for i in range(1, 5):
             for j in range(1, 5):
                 if (i, j) not in self.blocked_states:
-                    self.valid_states.add((i, j))
-                    if (i, j) not in self.terminal_states:
-                        self.utilities[(i, j)] = 0.0
-                    else:
-                        self.utilities[(i, j)] = self.terminal_states[(i, j)]
+                    self.valid_states.append((i, j))
     
     def get_next_state(self, state: Tuple[int, int], action: int) -> Tuple[int, int]:
         i, j = state
@@ -44,6 +31,11 @@ class Grid:
             return next_state
         return state
     
+    def get_reward(self, r: float, state: Tuple[int, int]) -> float:
+        if state in self.terminal_states:
+            return self.terminal_states[state]
+        return r
+    
     def get_transition_probs(self, state: Tuple[int, int], move: int) -> Dict[Tuple[int, int], float]:
         # returns state transition probabilities P(s' | s, a)
         # terminal state -> stays in the same state
@@ -54,25 +46,21 @@ class Grid:
         
         # Forward movement, if next state is invalid, stays in the same state
         next_state = self.get_next_state(state, move)
-        transitions[next_state] = transitions.get(next_state, 0) + self.prob_forward
+        transitions[next_state] = transitions.get(next_state, 0) + 0.7
         
         # Leftwards movement, if next state is invalid, stays in the same state
         left_move = (move - 1) % 4
         next_state = self.get_next_state(state, left_move)
-        transitions[next_state] = transitions.get(next_state, 0) + self.prob_left
+        transitions[next_state] = transitions.get(next_state, 0) + 0.2
 
         # Rightwards movement, if next state is invalid, stays in the same state
         right_move = (move + 1) % 4
         next_state = self.get_next_state(state, right_move)
-        transitions[next_state] = transitions.get(next_state, 0) + self.prob_right
+        transitions[next_state] = transitions.get(next_state, 0) + 0.1
         
         return transitions
 
-    def get_reward(self, state: Tuple[int, int], r: float) -> float:
-        if state in self.terminal_states:
-            return self.terminal_states[state]
-        return r
-    
+    # Value Iteration logic written utilizing pseudocode from AIMA textbook
     def value_iteration(self, r: float) -> Dict:        
         # Initialize U and U' vectors of utilities for states in S, initially zero
         U = {}
@@ -80,8 +68,8 @@ class Grid:
         
         for state in self.valid_states:
             if state in self.terminal_states:
-                U[state] = self.terminal_states[state]
-                U_prime[state] = self.terminal_states[state]
+                U[state] = self.get_reward(r, state)
+                U_prime[state] = self.get_reward(r, state)
             else:
                 U[state] = 0.0
                 U_prime[state] = 0.0
@@ -107,7 +95,7 @@ class Grid:
                         utility += prob * U[s_prime]
                     max_utility = max(max_utility, utility)
                 # U'[s] <- R(s) + γ max_a Σ P(s' | s, a)U(s')
-                U_prime[s] = self.get_reward(s, r) + self.gamma * max_utility
+                U_prime[s] = self.get_reward(r, s) + self.gamma * max_utility
                 
                 # if |U'[s] - U[s]| > δ then δ ← |U'[s] - U[s]|
                 if abs(U_prime[s] - U[s]) > delta:
@@ -119,6 +107,7 @@ class Grid:
         
         return U_prime
 
+    # Based on the description in AIMA 3rd edition textbook Ch 17.3
     def policy_evaluation(self, r: float, policy: Dict, U: Dict) -> Dict:
         # Simplified Bellman equation for policy evaluation Ui(s) = R(s) + γ s'Σ P(s'| s, pi i(s))Ui(s') = R(s) + γ Ui(s')
         while True:
@@ -134,13 +123,13 @@ class Grid:
                 utility = 0
                 transitions = self.get_transition_probs(s, a)
 
-                # U(s) = R(s) + γ Σ P(s'|s,π(s)) U(s')
+                # U(s) = R(s) + γ Σ P(s'|s, pi(s)) U(s')
                 for s_prime, prob in transitions.items():
                     utility += prob * U[s_prime]
 
-                U_prime[s] = self.get_reward(s, r) + self.gamma * utility
+                U_prime[s] = self.get_reward(r, s) + self.gamma * utility
 
-                # if |U'[s] - U[s]| > δ then δ ← |U'[s] - U[s]|
+                # if |U'[s] - U[s]| > δ then δ <- |U'[s] - U[s]|
                 if abs(U_prime[s] - U[s]) > delta:
                     delta = abs(U_prime[s] - U[s])
 
@@ -149,10 +138,11 @@ class Grid:
             # until δ < epsilon(1-γ)/γ
             if delta < self.epsilon * (1 - self.gamma) / self.gamma:
                 break
+
         return U
                 
                 
-    
+    # Policy Iteration logic written utilizing pseudocode from AIMA textbook
     def policy_iteration(self, r: float) -> Dict:
         # Initialize local variables pi and U
         U = {}
@@ -160,7 +150,7 @@ class Grid:
 
         for state in self.valid_states:
             if state in self.terminal_states:
-                U[state] = self.terminal_states[state]
+                U[state] = self.get_reward(r, state)
             else:
                 U[state] = 0.0
 
@@ -174,6 +164,7 @@ class Grid:
             # U <- Policy-Evaluation, unchanged <- true
             U = self.policy_evaluation(r, pi, U)
             unchanged = True
+
             # for each state s in S do
             for s in self.valid_states:
                 if s in self.terminal_states:
@@ -204,10 +195,10 @@ class Grid:
                 if max_policy > current_policy:
                     # pi[s] <- max_a Σ P(s' | s, a)U[s']
                     pi[s] = best_action
-                    # unchanged? <- false
+                    # unchanged <- false
                     unchanged = False
             
-            # until unchanged?
+            # until unchanged
             if unchanged:
                 break
         
@@ -227,56 +218,42 @@ class Grid:
         A = np.zeros((n, n))
         b = np.zeros(n)
         
-        #print("Setting up linear equations for policy evaluation...")
-    
-        for index, state in enumerate(states):
-            #print(f"Processing state {state} (index {index})")
-
-            if state in self.terminal_states:
+        for index, s in enumerate(states):
+            if s in self.terminal_states:
                 A[index, index] = 1.0
-                b[index] = self.terminal_states[state]
-                #print(f"  Terminal state. Set U[{state}] = {b[index]}")
+                b[index] = self.terminal_states[s]
             else:
-                #print(f"  Non-terminal state. Setting up equation for U[{state}]")
                 # To make the linear system Au = b, rearrange the Bellman equation: U(s) - γ Σ P(s'|s,a) U(s') = R(s), where R(s) = reward
                 b[index] = reward
                 A[index, index] = 1.0
                 # transition probabilities for down action
-                transitions = self.get_transition_probs(state, 2)
-                #print(f"  Transition probabilities for action 'down': {transitions}")
-                for next_state, prob in transitions.items():
-                    if next_state in states:
+                transitions = self.get_transition_probs(s, 2)
+
+                for s_prime, prob in transitions.items():
+                    if s_prime in states:
                         # check if next state is a terminal state
-                        if next_state in self.terminal_states:
+                        if s_prime in self.terminal_states:
                             # the resulting probability γ P(s'|s,π) R(terminal) is added to b
-                            b[index] += self.gamma * prob * self.terminal_states[next_state]
-                            #print(f"    Next state {next_state} is terminal. Adding {self.gamma * prob * self.terminal_states[next_state]} to b[{index}]")
+                            b[index] += self.gamma * prob * self.terminal_states[s_prime]
                         else:
-                            next_index = states.index(next_state)
-                            if next_state == state:
+                            next_index = states.index(s_prime)
+                            if s_prime == s:
                                 # staying in the same state, modify coefficient
                                 A[index, index] -= self.gamma * prob
-                                #print(f"    Next state {next_state} is the same as current state. Adjusting A[{index},{index}] to {A[index, index]}")
                             else:
                                 A[index, next_index] -= self.gamma * prob
-                                #print(f"    Next state {next_state} is different from current state. Adjusting A[{index},{next_index}] to {A[index, next_index]}")
 
-                #print(f"  Final equation for state {state}: {A[index]} * U = {b[index]}")
         return A, b
     
-    # Display logic generated by GitHub Copilot
-    def display_linear_system_matrices(self):
-        """Display the A matrix and b vector for both reward values"""
-        
-        print("\n" + "="*60)
-        print("LINEAR SYSTEM ANALYSIS - 'Always Down' Policy")
-        print("="*60)
-        
-        for r_val in [-0.2, -0.4]:
-            print(f"\n{'='*20} r = {r_val} {'='*20}")
-            
-            A, b = self.pi_policy(r_val)
+    # Invertibility check and formatting generated by Github Copilot
+    def display_linear_system_matrices(self):        
+        print("\nPi Policy")
+        print("=" * 50)
 
+        for r_val in [-0.2, -0.4]:
+            print(f"\nr = {r_val}")
+            A, b = self.pi_policy(r_val)
+            
             # check if A is invertible
             det_A = np.linalg.det(A)
             if abs(det_A) < 1e-10:
@@ -284,7 +261,7 @@ class Grid:
             else:
                 print(f"Matrix A is invertible (determinant = {det_A:.6f}).")
 
-            print(f"\nMatrix A ({len(A)}x{len(A[0])}):")
+            print(f"\nMatrix A")
             np.set_printoptions(precision=4, suppress=True, linewidth=200)
             print(A)
             
@@ -306,28 +283,45 @@ class Grid:
         # Calculate d and c from the two solutions
         # From u = c + rd, we have two equations per state:
         # u1 = c + r1*d  and  u2 = c + r2*d
-        d = (u2 - u1) / (r2 - r1)  # Slope of the line u vs r
-        c = u1 - r1 * d            # y-intercept when r = 0
+        d = (u2 - u1) / (r2 - r1)  
+        c = u1 - r1 * d            
         
-        print("\nLINEAR COEFFICIENTS for u = c + rd")
-        
+        print("\nLinear Coefficients for u = c + rd")
         print(f"State s32: c = {c[8]}, d = {d[8]}")
         print(f"State s21: c = {c[4]}, d = {d[4]}")
         print(f"State s44: c = {c[13]}, d = {d[13]}")
         
         return
     
+    # Output to CSV Generated by Github Copilot
     def value_iteration_values(self):
+        import csv
+        
+        # Create filename with timestamp for uniqueness
+        filename = "value_iteration_data.csv"
+        
         r_values = np.arange(-4.0, 0.1, 0.1)
-        for r in r_values:
-            utilities = self.value_iteration(r)
-            u_32 = utilities[(3, 3)]
-            u_33 = utilities[(2, 3)]
-            u_23 = utilities[(2, 2)]
-            print(f"r: {r: .1f}, u_32: {u_32}, u_33: {u_33}, u_23: {u_23}")
+        
+        with open(filename, 'w', newline='') as csvfile:
+            writer = csv.writer(csvfile)
+            
+            # Write header row
+            writer.writerow(['r_value', 'u32', 'u33', 'u23'])
+
+            # Write data rows
+            for r in r_values:
+                utilities = self.value_iteration(r)
+                u_s33 = utilities[(3, 3)]  # s32
+                u_s23 = utilities[(2, 3)]  # s33
+                u_s22 = utilities[(2, 2)]  # s23
+                
+                # Round r to avoid floating point precision issues
+                r_rounded = round(r, 1)
+                writer.writerow([r_rounded, u_s33, u_s23, u_s22])
+        
+        print(f"\nData saved to {filename}")
         
 def main():
-    """Main function to run both algorithms"""
     grid = Grid()
     
     # Run Value Iteration - get utilities
@@ -372,8 +366,11 @@ def main():
 
     grid.display_linear_system_matrices()
     grid.calculate_cd()
-    #grid.value_iteration_values()
-
+    grid.value_iteration_values()
+    
 
 if __name__ == "__main__":
     main()
+
+
+
