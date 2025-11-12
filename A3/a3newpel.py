@@ -22,6 +22,7 @@ class MsPacmanAgent:
         self.num_actions = len(self.legal_actions)
         self.Q = defaultdict(lambda: defaultdict(float))
         self.Nsa = defaultdict(lambda: defaultdict(int))
+        self.prev_action = None
         # Distance metric weights for generalization, higher weights -> more important
         self.weights = {
             'pos_x' : 2.0,
@@ -162,7 +163,7 @@ class MsPacmanAgent:
         similar_states = []
         states_checked = 0
         # set max states to check to limit computation
-        max_checks = min(len(self.Q), 200)
+        max_checks = min(len(self.Q), 100)
 
         # Similar states within max_distance
         for state in self.Q.keys():
@@ -329,12 +330,14 @@ class MsPacmanAgent:
                     best_value = exploration
                     best_action = a
             
+            self.prev_action = best_action  
             self.s = s_prime
             self.a = best_action
             self.r = r_prime
             self.prev_action = best_action  # Store for stuck detection
             return best_action
         else:
+            self.prev_action = None
             self.s = s_prime
             self.a = None
             self.r = r_prime
@@ -410,4 +413,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

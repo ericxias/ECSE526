@@ -26,8 +26,9 @@ class MsPacmanAgent:
         self.a = None
         self.r = None
         self.gamma = 0.99  
+        self.alpha = 0.2
         # Optimistic estimate of best possible reward
-        self.R_plus = 100.0
+        self.R_plus = 3000.0
         self.Ne = 5.0
 
         self.file = file
@@ -72,25 +73,22 @@ class MsPacmanAgent:
     def get_state(self):
         ram = self.ale.getRAM()
     
-        indices = [16, 20, 24, 28]  # Only 4 key values
-        values = []
-        
-        for i in indices:
-            values.append(ram[i] // 64)  # 0-255 → 0-3 (only 4 values each)
-        
-        # Add lives for important game state
-        values.append(self.ale.lives())
-        
-        return tuple(values)
-    
+        # RAM locations taken from the ALE documentation and Ms. Pacman specifics
+        player_x = ram[10] // 16
+        player_y = ram[16] // 16
+        ghost_positions = [
+            (ram[6] // 16, ram[12] // 16),   # Sue
+            (ram[7] // 16, ram[13] // 16),   # Inky
+            (ram[8] // 16, ram[14] // 16),   # Pinky
+            (ram[9] // 16, ram[15] // 16)    # Blinky
+        ]
+
+        direction = ram[56] // 64
+        dots_eaten_count = ram[119] // 16
+        return (player_x, player_y, tuple(ghost_positions), direction, dots_eaten_count)
+
     def is_terminal(self, state):
         return self.ale.game_over()
-    
-    def get_alpha(self, nsa):
-        if nsa == 0:
-            return 1.0
-        else:
-            return 1.0 / np.sqrt(nsa)
 
     def exploration_function(self, q_value, nsa):
         if nsa < self.Ne:
@@ -121,8 +119,7 @@ class MsPacmanAgent:
             
             # Q[s,a] <- Q[s,a] + alpha(Nsa[s,a]) × (r + gamma × max_a' Q[s',a'] - Q[s,a])
             q_current = self.Q[self.s][self.a]
-            alpha = self.get_alpha(self.Nsa[self.s][self.a])
-            self.Q[self.s][self.a] = q_current + alpha * (self.r + self.gamma * max_q - q_current)
+            self.Q[self.s][self.a] = q_current + self.alpha * (self.r + self.gamma * max_q - q_current)
         
         if not self.is_terminal(s_prime):
             best_action = None

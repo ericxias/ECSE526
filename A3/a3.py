@@ -8,7 +8,7 @@ import pickle
 import os
 
 class MsPacmanAgent:
-    def __init__(self, file= "newpacmanqtable.pkl"):
+    def __init__(self, file= "actionqtable.pkl"):
         self.ale = ALEInterface()
         self.ale.setBool("display_screen", False)
         self.ale.setBool("sound", False)
@@ -26,15 +26,30 @@ class MsPacmanAgent:
         self.a = None
         self.r = None
         self.gamma = 0.99  
+        self.alpha = 0.2
         # Optimistic estimate of best possible reward
-        self.R_plus = 100.0
+        self.R_plus = 3000.0
         self.Ne = 5.0
+
+        # Group actions based on movement directions for generalization
+        self.action_groups = {
+            0: [0],         # NOOP
+            1: [1],         # Fire only
+            2: [2, 10],     # Up movements
+            3: [5, 13],     # Down movements
+            4: [3, 11],     # Right movements
+            5: [4, 12],     # Left movements
+            6: [6, 14],     # Up-Right movements
+            7: [7, 15],     # Up-Left movements
+            8: [8, 16],     # Down-Right movements
+            9: [9, 17]      # Down-Left movements
+        }
 
         self.file = file
         self.load_qtable()
 
         # sleep to ensure the game window is ready
-        #time.sleep(1)
+        time.sleep(1)
 
     def load_qtable(self):
         if os.path.exists(self.file):
@@ -68,7 +83,6 @@ class MsPacmanAgent:
             pickle.dump(data, f)
         print(f"Q-table saved to {self.file}")
 
-
     def get_state(self):
         ram = self.ale.getRAM()
     
@@ -82,56 +96,56 @@ class MsPacmanAgent:
             (ram[9] // 16, ram[15] // 16)    # Blinky
         ]
 
-        # Calculate proximity to nearest ghost
-        ghost_distances = []
-        for gx, gy in ghost_positions:
-            if gx > 0 and gy > 0:
-                dist = abs(player_x - gx) + abs(player_y - gy)
-                ghost_distances.append(dist)
-
-        # Check nearest ghost distance and proximity
-        if ghost_distances:
-            min_distance = min(ghost_distances)
-            if min_distance <= 1:
-                proximity = 0  # Very close
-            elif min_distance <= 5:
-                proximity = 1  # Close
-            elif min_distance <= 10:
-                proximity = 2  # Medium
-            else:
-                proximity = 3  # Far
-        else:
-            proximity = 3  # No ghosts detected, treat as far
-
         direction = ram[56] // 64
+        dots_eaten_count = ram[119] // 16
 
-        prev_player_x = getattr(self, 'prev_player_x', player_x)
-        prev_player_y = getattr(self, 'prev_player_y', player_y)
-        # Check if agent is stuck
-        is_stuck = (player_x == prev_player_x and player_y == prev_player_y and hasattr(self, 'prev_action') and self.prev_action is not None)
-        self.prev_player_x = player_x
-        self.prev_player_y = player_y
-        if is_stuck:
-            stuck_indicator = 1
-        else:
-            stuck_indicator = 0
-
-        return (player_x, player_y, proximity, direction, stuck_indicator)
+        return (player_x, player_y, tuple(ghost_positions), direction, dots_eaten_count)
 
     
     def is_terminal(self, state):
         return self.ale.game_over()
-    
-    def get_alpha(self, nsa):
-        if nsa == 0:
-            return 1.0
-        else:
-            return 1.0 / np.sqrt(nsa)
 
     def exploration_function(self, q_value, nsa):
         if nsa < self.Ne:
             return self.R_plus
         return q_value
+    
+    def get_action_group(self, action):
+        for group, actions in self.action_groups.items():
+            if action in actions:
+                return group
+        # Default to action itself if not found
+        return action
+    
+    def get_group_actions(self, group):
+        result = []
+        for a in self.action_groups.get(group, []):
+            if a < self.num_actions:
+                result.append(a)
+        return result
+
+    def generalized_qval(self, state, action, nsa):
+        q = self.Q[state][action]
+        # If enough experience, use direct Q-value
+        if nsa >= 3:
+            return q
+        
+        group = self.get_action_group(action)
+        sim_actions = self.get_group_actions(group)
+        group_qvals = []
+
+        # Collect Q-values from similar actions
+        for sim_action in sim_actions:
+            if sim_action != action and self.Nsa[state][sim_action] > 0:
+                group_qvals.append(self.Q[state][sim_action])
+
+        if group_qvals:
+            # More weight on direct Q-value as nsa increases
+            weight = min(0.8, nsa / 3.0)
+            return q * weight + np.mean(group_qvals) * (1 - weight)
+        else:
+            return q
+            
 
     # Exploratory Q-Learning Agent, written utilizing pseudocode from AIMA textbook
     def q_learning_agent(self, percept):
@@ -149,7 +163,7 @@ class MsPacmanAgent:
                 # Compute max_a' Q[s',a']
                 max_q = float('-inf')
                 for a in range(self.num_actions):
-                    q_value = self.Q[s_prime][a]
+                    q_value = self.generalized_qval(s_prime, a, self.Nsa[s_prime][a])
                     if q_value > max_q:
                         max_q = q_value
             else:
@@ -157,8 +171,7 @@ class MsPacmanAgent:
             
             # Q[s,a] <- Q[s,a] + alpha(Nsa[s,a]) × (r + gamma × max_a' Q[s',a'] - Q[s,a])
             q_current = self.Q[self.s][self.a]
-            alpha = self.get_alpha(self.Nsa[self.s][self.a])
-            self.Q[self.s][self.a] = q_current + alpha * (self.r + self.gamma * max_q - q_current)
+            self.Q[self.s][self.a] = q_current + self.alpha * (self.r + self.gamma * max_q - q_current)
         
         if not self.is_terminal(s_prime):
             best_action = None
@@ -166,12 +179,14 @@ class MsPacmanAgent:
 
             # find argmax_a' f(Q[s',a'], Nsa[s',a'])
             for a in range(self.num_actions):
-                exploration = self.exploration_function(self.Q[s_prime][a], self.Nsa[s_prime][a])
+                q_value = self.generalized_qval(s_prime, a, self.Nsa[s_prime][a])
+                exploration = self.exploration_function(q_value, self.Nsa[s_prime][a])
 
                 if exploration > best_value:
                     best_value = exploration
                     best_action = a
             
+            # Update state, action, reward
             self.s = s_prime
             self.a = best_action
             self.r = r_prime
@@ -241,7 +256,7 @@ class MsPacmanAgent:
 def main():
     agent = MsPacmanAgent()
     
-    rewards = agent.run(num_episodes=50000)
+    rewards = agent.run(num_episodes=30000)
     print("Episode rewards:", rewards)
 
 if __name__ == "__main__":

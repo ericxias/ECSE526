@@ -8,7 +8,7 @@ import pickle
 import os
 
 class MsPacmanAgent:
-    def __init__(self, file="weights.pkl"):
+    def __init__(self, file="newweights.pkl"):
         self.ale = ALEInterface()
         self.ale.setBool("display_screen", False)
         self.ale.setBool("sound", False)
@@ -16,9 +16,6 @@ class MsPacmanAgent:
         
         self.ale.loadROM("MSPACMAN.BIN")
         #self.ale.setInt("random_seed", 123)
-
-        # prev action to detect stuck state
-        self.prev_action = None
 
         # Initialize Q-Learning Agent variables
         self.legal_actions = self.ale.getLegalActionSet()
@@ -28,14 +25,14 @@ class MsPacmanAgent:
         self.a = None
         self.r = None
         self.gamma = 0.99 
-        self.alpha = 0.1
+        self.alpha = 0.3
         self.Nsa = defaultdict(lambda: defaultdict(int))
         # Optimistic estimate of best possible reward
         self.R_plus = 100.0
-        self.Ne = 8.0
+        self.Ne = 5.0
 
-        # Function approximation weights and features
-        self.weights = np.random.normal(0, 0.1, (8, self.num_actions))  # 7 features
+        # Function approximation weights 
+        self.weights = np.random.normal(0, 0.1, (self.num_actions, 12))
 
         self.file = file
         self.load_weights()
@@ -66,7 +63,6 @@ class MsPacmanAgent:
             pickle.dump(data, f)
         print(f"Weights saved to {self.file}")
 
-
     def get_state(self):
         ram = self.ale.getRAM()
     
@@ -80,71 +76,60 @@ class MsPacmanAgent:
             (ram[9] // 16, ram[15] // 16)    # Blinky
         ]
 
-        # Calculate proximity to nearest ghost
-        ghost_distances = []
-        for gx, gy in ghost_positions:
-            if gx > 0 and gy > 0:
-                dist = abs(player_x - gx) + abs(player_y - gy)
-                ghost_distances.append(dist)
-
-        # Check nearest ghost distance and proximity
-        if ghost_distances:
-            min_distance = min(ghost_distances)
-            if min_distance <= 1:
-                proximity = 0  # Very close
-            elif min_distance <= 5:
-                proximity = 1  # Close
-            elif min_distance <= 10:
-                proximity = 2  # Medium
-            else:
-                proximity = 3  # Far
-        else:
-            proximity = 3  # No ghosts detected, treat as far
-
         direction = ram[56] // 64
+        dots_eaten_count = ram[119] // 16
 
-        prev_player_x = getattr(self, 'prev_player_x', player_x)
-        prev_player_y = getattr(self, 'prev_player_y', player_y)
-        # Check if agent is stuck
-        is_stuck = (player_x == prev_player_x and player_y == prev_player_y and hasattr(self, 'prev_action') and self.prev_action is not None)
-        self.prev_player_x = player_x
-        self.prev_player_y = player_y
-        if is_stuck:
-            stuck_indicator = 1
-        else:
-            stuck_indicator = 0
-
-        return (player_x, player_y, proximity, direction, stuck_indicator)
+        return (player_x, player_y, tuple(ghost_positions), direction, dots_eaten_count)
 
     def is_terminal(self, state):
         return self.ale.game_over()
     
+    def calculate_min_ghost_distance(self, player_x, player_y, ghost_positions):
+        min_distance = float('inf')
+        for gx, gy in ghost_positions:
+            if gx > 0 and gy > 0:  # Valid ghost position
+                distance = abs(player_x - gx) + abs(player_y - gy)
+                min_distance = min(min_distance, distance)
+        return min_distance if min_distance != float('inf') else 10  # Default if no valid ghosts
+    
     def extract_features(self, state):
-        player_x, player_y, proximity, direction, stuck_indicator = state
-        features = np.zeros(8)
+        player_x, player_y, ghost_positions, direction, dots_eaten_count = state
+        features = np.zeros(12)
 
-        # Noramalized positions
+        # Normalize features
         features[0] = player_x / 15.0
         features[1] = player_y / 15.0
-        features[2] = (player_x / 15.0) * (player_y / 15.0) # Positions interaction
-        features[3] = proximity / 3.0
-        features[4] = ((player_x / 15.0) + (player_y / 15.0)) * (1 - proximity / 3.0)  # Position and proximity interaction
-        features[5] = direction / 3.0
-        features[6] = stuck_indicator
-        features[7] = 1.0  # Bias term
-
+        
+        # Direct relative ghost positions
+        ghost_features = []
+        for gx, gy in ghost_positions:
+            if gx > 0 and gy > 0:  # Valid ghost
+                rel_x = (gx - player_x) / 15.0  # Relative X (-1 to +1)
+                rel_y = (gy - player_y) / 15.0  # Relative Y (-1 to +1)
+                ghost_features.extend([rel_x, rel_y])
+        
+        # Pad with zeros if fewer than 4 ghosts
+        while len(ghost_features) < 8: 
+            ghost_features.extend([0.0, 0.0])
+        
+        # Take first 8 features (4 ghosts max)
+        features[2:10] = ghost_features[:8]
+        features[10] = direction / 3.0
+        # 151 dots in total
+        features[11] = dots_eaten_count / 151.0 
+        
         return features
     
     def get_all_qvalues(self, state):
         features = self.extract_features(state)
-        q_values = np.dot(self.weights.T, features)
+        q_values = np.dot(self.weights, features)
         return q_values
     
     def get_qvalue(self, state, action):
         features = self.extract_features(state)
-        q_value = np.dot(self.weights[:, action], features)
+        q_value = np.dot(self.weights[action], features)
         return q_value
-    
+
     # Based on equation 21.13 from AIMA textbook
     def update_weights(self, state, action, reward, next_state, game_over):
         # Qθ(s,a)
@@ -158,15 +143,12 @@ class MsPacmanAgent:
 
         # delta Qθ(s,a)/deltaθ    
         features = self.extract_features(state)
-        self.weights[:, action] += self.alpha * (target - q_value) * features
-        
-        
+        self.weights[action] += self.alpha * (target - q_value) * features
 
     def exploration_function(self, q_value, nsa):
         if nsa < self.Ne:
             return self.R_plus
         return q_value
-        
 
     # Exploratory Q-Learning Agent, written utilizing pseudocode from AIMA textbook, adjusted with function approximation
     def q_learning_agent(self, percept):
@@ -190,24 +172,18 @@ class MsPacmanAgent:
                     best_value = exploration
                     best_action = a
 
-            #set prev_action
-            self.prev_action = best_action
-
             self.Nsa[str(s_prime)][best_action] += 1
             self.s = s_prime
             self.a = best_action
             self.r = r_prime
             return best_action
         else:
-            # Clear prev action
-            self.prev_action = None
             # Terminal state
             self.s = s_prime
             self.a = None
             self.r = r_prime
             return None
                 
-            
     def run(self, num_episodes=100):
         episode_rewards = []
 
@@ -249,7 +225,6 @@ class MsPacmanAgent:
                 total_reward += raw_reward
                 steps += 1
 
-            
             # Final state update
             if self.is_terminal(current_state):
                 final_percept = (current_state, reward)
@@ -276,7 +251,6 @@ class MsPacmanAgent:
         self.r = None
         return self.get_state()
     
-    
 def main():
     agent = MsPacmanAgent()
     
@@ -285,4 +259,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
